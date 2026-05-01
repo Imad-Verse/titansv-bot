@@ -1,0 +1,6 @@
+pyTelegramBotAPI
+yt-dlp
+python-dotenv
+requests
+psutil
+browser-cookie3
