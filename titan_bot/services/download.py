@@ -871,6 +871,7 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         ydl_opts['cookiefile'] = cookies_file
 
     platform = detect_platform_from_url(url)
+    ffmpeg_available = check_ffmpeg_available()
 
     # Apply shared defaults
     ydl_opts['noplaylist'] = True
@@ -890,32 +891,39 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         ydl_opts['format'] = 'bestvideo[ext=mp4]/bestvideo/best'
         return ydl_opts
 
+    # Default format strategy: prefer video + audio merger if ffmpeg is available
+    if ffmpeg_available:
+        # We prefer high quality merging, but ensure we don't accidentally pick a video-only format if merger fails
+        # Format: (Best video + Best audio) OR (Best single file with both) OR (Best single file)
+        default_video_format = 'bestvideo+bestaudio/best[vcodec!=none][acodec!=none]/best'
+    else:
+        # Without ffmpeg, we MUST use a single file format (usually 'best')
+        default_video_format = 'best[vcodec!=none][acodec!=none]/best'
+
     if platform == 'instagram':
-        ydl_opts.update({
-             'format': 'best'
-        })
+        # Instagram often works better with 'best' to get a single mp4 with audio
+        # But if ffmpeg is available, we can try to get higher quality if it exists
+        ydl_opts['format'] = default_video_format if ffmpeg_available else 'best'
     elif platform == 'tiktok':
         ydl_opts.update({
-            'format': 'best',
+            'format': 'best', # TikTok usually serves single files with audio
             'noplaylist': True
         })
     elif platform == 'facebook':
         if quality_type == 'high':
-            ydl_opts['format'] = 'bestvideo+bestaudio/best'
+            ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
-            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best'
+            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
         else:
             ydl_opts['format'] = 'worstvideo+bestaudio/worst'
     elif platform == 'youtube':
         if 'shorts' in url.lower():
-            # Shorts specific handling: use 'best' directly to avoid format selector issues
+            # Shorts often have issues with complex format selectors
             ydl_opts['format'] = 'best'
         elif quality_type == 'high':
-             # Radical Fix: Just ask for the best available video+audio combo
-             ydl_opts['format'] = 'bestvideo+bestaudio/best'
+             ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
-             # Try 480p, fallback to best if not available
-             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best'
+             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
         elif quality_type == 'audio':
              ydl_opts['format'] = 'bestaudio/best'
              ydl_opts['postprocessors'] = [{
@@ -929,10 +937,9 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
     else:
         # Generic fallback for other platforms
         if quality_type == 'high':
-            ydl_opts['format'] = 'bestvideo+bestaudio/best'
+            ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
-             # Try 480p, fallback to best if not available
-            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best'
+            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
         ydl_opts['noplaylist'] = True
     
     return ydl_opts
@@ -952,16 +959,16 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
             
             # استراتيجية التراجع في الجودة (Nuclear Option)
             if i == 0:
-                # المحاولة الثانية: حذف الفلاتر، الكوكيز، واستخدام best
+                # المحاولة الثانية: حذف الفلاتر، الكوكيز، واستخدام best مع ضمان وجود الصوت
                 logger.info("Falling back to 'best' format, clearing filters and cookies")
-                ydl_opts['format'] = 'best'
+                ydl_opts['format'] = 'best[vcodec!=none][acodec!=none]/best'
                 ydl_opts['match_filter'] = None
                 if 'cookiefile' in ydl_opts:
                     del ydl_opts['cookiefile']
             elif i == max_retries - 2:
                 # المحاولة قبل الأخيرة: حذف الفلاتر، الكوكيز، واستخدام worst
                 logger.info("Falling back to 'worst' format, clearing filters and cookies")
-                ydl_opts['format'] = 'worst'
+                ydl_opts['format'] = 'worst[vcodec!=none][acodec!=none]/worst'
                 ydl_opts['match_filter'] = None
                 if 'cookiefile' in ydl_opts:
                     del ydl_opts['cookiefile']
@@ -1158,6 +1165,7 @@ def process_download(message, quality_type):
         download_progress_hook = _build_progress_hook(cancel_event, progress_msg, message.chat.id, download_started_text, progress_markup)
         
         ydl_opts = get_ydl_opts_for_platform(source_url, quality_type, output_template, cookies_file)
+        logger.info(f"Download strategy for {platform}: format='{ydl_opts.get('format')}', ffmpeg={'available' if check_ffmpeg_available() else 'missing'}")
         ydl_opts['progress_hooks'] = [download_progress_hook]
         
         if cookies_file and platform:
