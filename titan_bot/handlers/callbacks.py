@@ -86,7 +86,6 @@ def callback_query(call):
         return
 
     elif call.data == 'cancel_broadcast':
-        from titan_bot.core import loader
         with loader.state_lock:
             loader.broadcast_active = False
         bot.answer_callback_query(call.id, "⚠️ جاري إلغاء الإذاعة...")
