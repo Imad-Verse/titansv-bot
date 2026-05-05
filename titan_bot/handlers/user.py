@@ -35,6 +35,7 @@ def create_main_markup(user_id, is_admin=False):
     lang_btn = translation_system.get(user_id, 'main_menu_buttons', key='language')
     contact_btn = translation_system.get(user_id, 'main_menu_buttons', key='contact')
     bots_list_btn = translation_system.get(user_id, 'main_menu_buttons', key='bots_list')
+    stats_btn = translation_system.get(user_id, 'main_menu_buttons', key='user_stats')
     
     share_msg = translation_system.get(user_id, 'share_message', bot_username=BOT_USERNAME or "bot")
     share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME or ''}&text={quote(share_msg)}"
@@ -47,7 +48,8 @@ def create_main_markup(user_id, is_admin=False):
         types.InlineKeyboardButton(contact_btn, callback_data="menu_contact")
     )
     markup.row(
-        types.InlineKeyboardButton(bots_list_btn, callback_data="menu_bots_list")
+        types.InlineKeyboardButton(bots_list_btn, callback_data="menu_bots_list"),
+        types.InlineKeyboardButton(stats_btn, callback_data="menu_user_stats")
     )
     
     if is_admin:
@@ -191,3 +193,35 @@ def bots_list_command(message):
     )
     
     bot.send_message(message.chat.id, bots_text, parse_mode="HTML", reply_markup=markup)
+
+@bot.message_handler(commands=['stats', 'احصائياتي', 'إحصائياتي'])
+@bot.message_handler(func=lambda m: m.text in ["📊 إحصائياتي", "📊 My Stats", "📊 Mes Stats", "إحصائياتي"])
+def stats_command(message):
+    uid = message.from_user.id
+    from titan_bot.core.database import get_user_details, get_user_rank, get_total_users_count
+    
+    user_info = get_user_details(uid)
+    if not user_info:
+        # Fallback if user not in DB yet
+        add_user(uid, message.from_user.username, message.from_user.first_name)
+        user_info = {'username': message.from_user.username, 'download_count': 0, 'join_date': 'اليوم'}
+        
+    rank = get_user_rank(uid)
+    total_users = get_total_users_count()
+    
+    stats_text = translation_system.get(
+        uid, 
+        'user_stats_msg',
+        name=message.from_user.first_name,
+        uid=uid,
+        join_date=user_info['join_date'],
+        download_count=user_info['download_count'],
+        rank=rank,
+        total_users=total_users
+    )
+    
+    main_menu_text = translation_system.get(uid, 'main_menu')
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton(main_menu_text, callback_data="menu_back_to_main"))
+    
+    bot.send_message(message.chat.id, stats_text, parse_mode="HTML", reply_markup=markup)

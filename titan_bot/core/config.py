@@ -83,7 +83,7 @@ MAX_FILE_SIZE_MB = _get_int_env('MAX_FILE_SIZE_MB', 2048)
 MAX_FILE_SIZE = _get_int_env('MAX_FILE_SIZE', 0)
 if MAX_FILE_SIZE <= 0:
     MAX_FILE_SIZE = MAX_FILE_SIZE_MB * 1024 * 1024
-TELEGRAM_UPLOAD_LIMIT_MB = _get_int_env('TELEGRAM_UPLOAD_LIMIT_MB', 20)
+TELEGRAM_UPLOAD_LIMIT_MB = _get_int_env('TELEGRAM_UPLOAD_LIMIT_MB', 50)
 TELEGRAM_UPLOAD_LIMIT = _get_int_env('TELEGRAM_UPLOAD_LIMIT', 0)
 if TELEGRAM_UPLOAD_LIMIT <= 0:
     TELEGRAM_UPLOAD_LIMIT = TELEGRAM_UPLOAD_LIMIT_MB * 1024 * 1024
@@ -94,3 +94,7 @@ DEFAULT_ALLOWED_PLATFORMS = [
     'youtube', 'instagram', 'facebook', 'tiktok', 'twitter', 'pinterest', 'threads', 'snapchat'
 ]
 ALLOWED_PLATFORMS = [p.lower() for p in (_split_env_list(os.getenv('ALLOWED_PLATFORMS', '')) or DEFAULT_ALLOWED_PLATFORMS)]
+
+# FFmpeg path (Optional, will look in system PATH if not set)
+FFMPEG_PATH = os.getenv('FFMPEG_PATH')
+

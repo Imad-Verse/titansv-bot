@@ -434,14 +434,20 @@ def check_user_exists(user_id):
         logger.error(f"Check user exist error: {e}")
         return False
 def set_user_pref(user_id, key, value):
-    """Set a user preference."""
-    allowed_keys = ['default_quality']
-    if key not in allowed_keys:
+    """Set a user preference safely."""
+    # خارطة للمفاتيح المسموح بها لتجنب حقن SQL
+    allowed_columns = {
+        'default_quality': 'default_quality'
+    }
+    
+    column = allowed_columns.get(key)
+    if not column:
         return False
         
     try:
         with _connect_db() as conn:
-            conn.execute(f'UPDATE users SET {key}=? WHERE user_id=?', (value, str(user_id)))
+            # استخدام اسم العمود من القائمة البيضاء مباشرة
+            conn.execute(f'UPDATE users SET {column}=? WHERE user_id=?', (value, str(user_id)))
             conn.commit()
             return True
     except Exception as e:
@@ -449,17 +455,54 @@ def set_user_pref(user_id, key, value):
         return False
 
 def get_user_pref(user_id, key):
-    """Get a user preference."""
-    allowed_keys = ['default_quality']
-    if key not in allowed_keys:
+    """Get a user preference safely."""
+    allowed_columns = {
+        'default_quality': 'default_quality'
+    }
+    
+    column = allowed_columns.get(key)
+    if not column:
         return None
         
     try:
         with _connect_db() as conn:
-            # Check if column exists first (to be safe during migration)
-            # But since we run init_db, it should exist.
-            res = conn.execute(f'SELECT {key} FROM users WHERE user_id=?', (str(user_id),)).fetchone()
+            res = conn.execute(f'SELECT {column} FROM users WHERE user_id=?', (str(user_id),)).fetchone()
             return res[0] if res else None
     except Exception as e:
         logger.error(f"Get user pref error: {e}")
         return None
+
+def get_user_rank(user_id):
+    """الحصول على رتبة المستخدم بناءً على عدد التحميلات"""
+    try:
+        with _connect_db() as conn:
+            cursor = conn.cursor()
+            # ترتيب المستخدمين حسب التحميلات ومعرفة مكانه
+            query = """
+                SELECT rank FROM (
+                    SELECT user_id, RANK() OVER (ORDER BY download_count DESC) as rank
+                    FROM users
+                ) WHERE user_id = ?
+            """
+            res = cursor.execute(query, (str(user_id),)).fetchone()
+            return res[0] if res else 0
+    except Exception as e:
+        # Fallback if window functions are not supported
+        try:
+            with _connect_db() as conn:
+                user_count = conn.execute('SELECT download_count FROM users WHERE user_id=?', (str(user_id),)).fetchone()
+                if not user_count: return 0
+                rank = conn.execute('SELECT COUNT(*) + 1 FROM users WHERE download_count > ?', (user_count[0],)).fetchone()
+                return rank[0]
+        except:
+            return 0
+
+def get_total_users_count():
+    """الحصول على إجمالي عدد المستخدمين"""
+    try:
+        with _connect_db() as conn:
+            res = conn.execute('SELECT COUNT(*) FROM users').fetchone()
+            return res[0] if res else 0
+    except Exception as e:
+        logger.error(f"Get total users count error: {e}")
+        return 0

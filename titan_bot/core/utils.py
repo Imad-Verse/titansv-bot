@@ -4,9 +4,40 @@ import time
 import logging
 import threading
 import secrets
-from titan_bot.core.config import LOG_FILE, COOKIES_FILES, COOKIES_MAP, BASE_DIR, TITAN_DOWNLOADS
+from titan_bot.core.config import LOG_FILE, COOKIES_FILES, COOKIES_MAP, BASE_DIR, TITAN_DOWNLOADS, FFMPEG_PATH
 
-FFMPEG_AVAILABLE = shutil.which("ffmpeg") is not None
+def _initialize_ffmpeg():
+    """تحقق من توفر FFmpeg وتحديث المسار إذا لزم الأمر"""
+    # 1. تحقق إذا كان متاحاً بالفعل في PATH
+    if shutil.which("ffmpeg"):
+        return True
+    
+    # 2. تحقق من المسار المخصص (إذا تم تعيينه في .env)
+    if FFMPEG_PATH:
+        # إذا كان المسار يشير للمجلد الذي يحتوي على ffmpeg.exe
+        if os.path.exists(os.path.join(FFMPEG_PATH, "ffmpeg.exe")):
+            if FFMPEG_PATH not in os.environ["PATH"]:
+                os.environ["PATH"] += os.pathsep + FFMPEG_PATH
+            return True
+        # إذا كان المسار يشير للملف نفسه مباشرة (اختياري)
+        elif os.path.exists(FFMPEG_PATH) and os.path.isfile(FFMPEG_PATH) and "ffmpeg" in FFMPEG_PATH.lower():
+            return True
+    
+    # 3. تحقق من مسارات شائعة أخرى كاحتياط
+    fallbacks = [
+        r"C:\ffmpeg\bin",
+        r"C:\Program Files\ffmpeg\bin",
+        os.path.join(os.path.expanduser("~"), "AppData", "Local", "ffmpeg", "bin")
+    ]
+    for path in fallbacks:
+        if os.path.exists(os.path.join(path, "ffmpeg.exe")):
+            if path not in os.environ["PATH"]:
+                os.environ["PATH"] += os.pathsep + path
+            return True
+            
+    return False
+
+FFMPEG_AVAILABLE = _initialize_ffmpeg()
 
 def check_ffmpeg_available():
     return FFMPEG_AVAILABLE
@@ -117,9 +148,6 @@ def start_cleanup_scheduler(interval_minutes=60):
             time.sleep(interval_minutes * 60)
             try:
                 smart_cleanup(max_age_hours=1)
-            except Exception as e:
-                logger.error(f"Scheduled cleanup error: {e}")
-    
             except Exception as e:
                 logger.error(f"Scheduled cleanup error: {e}")
     

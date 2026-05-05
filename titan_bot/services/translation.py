@@ -132,6 +132,7 @@ class TranslationSystem:
                     'language': '🌍 تغيير اللغة',
                     'contact': '👨‍💻 المطور',
                     'bots_list': '🤖 قائمة بوتاتنا',
+                    'user_stats': '📊 إحصائياتي',
                     'admin_panel': '🛠 لوحة التحكم'
                 },
                 'bots_list_text': """هذه قائمة البوتات الخاصة بنا:
@@ -183,6 +184,13 @@ class TranslationSystem:
 
 جرب البوت الآن من هنا:
 @{bot_username}""",
+                'user_stats_msg': """📊 <b>إحصائياتك الشخصية:</b>
+
+👤 <b>الاسم:</b> {name}
+🆔 <b>المعرف:</b> <code>{uid}</code>
+📅 <b>تاريخ الانضمام:</b> {join_date}
+📥 <b>إجمالي التحميلات:</b> {download_count} فيديو
+🏆 <b>رتبتك:</b> {rank} من أصل {total_users} مستخدم""",
             },
             'en': {
                 'welcome_title': "🎉 Welcome to {bot_name}",
@@ -303,6 +311,7 @@ Contact developer for any inquiries.""",
                     'language': '🌍 Change Language',
                     'contact': '👨‍💻 Developer',
                     'bots_list': '🤖 Our Bots List',
+                    'user_stats': '📊 My Stats',
                     'admin_panel': '🛠 Admin Panel'
                 },
                 'bots_list_text': """This is our list of bots:
@@ -353,6 +362,13 @@ The "Fadhakir" bot is your daily companion for reminders of prayers, dhikr, and 
 📥 Download your favorite videos from YouTube, TikTok, Facebook, and Instagram in high quality.
 
 Try it now: @{bot_username}""",
+                'user_stats_msg': """📊 <b>Your Personal Stats:</b>
+
+👤 <b>Name:</b> {name}
+🆔 <b>ID:</b> <code>{uid}</code>
+📅 <b>Join Date:</b> {join_date}
+📥 <b>Total Downloads:</b> {download_count} videos
+🏆 <b>Your Rank:</b> {rank} out of {total_users} users""",
             },
             'fr': {
                 'welcome_title': "🎉 Bienvenue sur {bot_name}",
@@ -469,6 +485,7 @@ Envoyez un lien vidéo de (YouTube, TikTok, Facebook, Instagram).
                     'language': '🌍 Langue',
                     'contact': '👨‍💻 Développeur',
                     'bots_list': '🤖 Nos Bots',
+                    'user_stats': '📊 Mes Stats',
                     'admin_panel': '🛠 Admin'
                 },
                 'bots_list_text': """Voici la liste de nos bots :
@@ -519,6 +536,13 @@ Votre compagnon quotidien pour les rappels de prières, dhikr et sunnahs... À a
 📥 Téléchargez vos vidéos préférées depuis YouTube, TikTok, Facebook et Instagram en haute qualité.
 
 Essayez-le maintenant : @{bot_username}""",
+                'user_stats_msg': """📊 <b>Vos Statistiques :</b>
+
+👤 <b>Nom :</b> {name}
+🆔 <b>ID :</b> <code>{uid}</code>
+📅 <b>Date d'inscription :</b> {join_date}
+📥 <b>Total téléchargements :</b> {download_count} vidéos
+🏆 <b>Votre Rang :</b> {rank} sur {total_users} utilisateurs""",
             }
         }
         

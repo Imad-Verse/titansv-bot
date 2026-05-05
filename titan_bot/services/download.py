@@ -1605,31 +1605,69 @@ def perform_all_broadcast(message):
             except:
                 pass
 
+            start_time = time.time()
+            last_update_time = start_time
+
             for user_id in user_generator():
-                if not loader.broadcast_active: break
+                if not loader.broadcast_active: 
+                    break
+                
                 future = executor.submit(send_wrapper, user_id)
                 futures.append(future)
-                if len(futures) > 100:
+                
+                # Limit pending futures
+                if len(futures) > 50:
                     done = [f for f in futures if f.done()]
                     for f in done: futures.remove(f)
                 
-                if stats['processed'] > 0 and stats['processed'] % 50 == 0:
+                # تحديث التقدم كل ثانيتين أو كل 20 مستخدم
+                current_time = time.time()
+                if (current_time - last_update_time >= 2) or (stats['processed'] > 0 and stats['processed'] % 20 == 0):
                     try:
                         perc = (stats['processed'] / total_estimate * 100) if total_estimate > 0 else 0
                         bar = "▰" * int(perc / 10) + "▱" * (10 - int(perc / 10))
-                        bot.edit_message_text(f"🚀 <b>جاري النشر...</b>\n{bar} {perc:.1f}%\n✅ {stats['suc']} | ❌ {stats['fail']}", message.chat.id, st.message_id, parse_mode="HTML")
+                        
+                        # حساب الوقت المتبقي
+                        elapsed = current_time - start_time
+                        if stats['processed'] > 0:
+                            avg_time = elapsed / stats['processed']
+                            remaining = (total_estimate - stats['processed']) * avg_time
+                            rem_text = f"⏳ المتبقي: {int(remaining)} ثانية"
+                        else:
+                            rem_text = "⏳ جاري الحساب..."
+
+                        markup_cancel = types.InlineKeyboardMarkup()
+                        markup_cancel.add(types.InlineKeyboardButton("❌ إلغاء البث فوراً", callback_data="cancel_broadcast"))
+
+                        bot.edit_message_text(
+                            f"🚀 <b>جاري النشر الجماعي...</b>\n\n"
+                            f"{bar} {perc:.1f}%\n"
+                            f"✅ ناجح: {stats['suc']}\n"
+                            f"❌ فاشل: {stats['fail']}\n"
+                            f"📊 المعالجة: {stats['processed']}/{total_estimate}\n"
+                            f"{rem_text}",
+                            message.chat.id, st.message_id, parse_mode="HTML", reply_markup=markup_cancel
+                        )
+                        last_update_time = current_time
                     except: pass
             
             for f in as_completed(futures): pass
     
     except Exception as e:
         logger.error(f"Broadcast Error: {e}")
-        try: bot.send_message(message.chat.id, "❌ تعذر إكمال الإذاعة بسبب خطأ داخلي. راجع السجل للمزيد من التفاصيل.")
+        try: bot.send_message(message.chat.id, f"❌ تعذر إكمال الإذاعة بسبب خطأ: {e}")
         except: pass
     
     finally:
+        is_cancelled = not loader.broadcast_active
         with loader.state_lock: loader.broadcast_active = False
-        final_msg = f"✅ <b>تم الانتهاء!</b>\n✅ ناجح: {stats['suc']}\n❌ فاشل: {stats['fail']}\n📊 الإجمالي: {stats['processed']}"
+        
+        status_text = "✅ <b>تم الانتهاء!</b>" if not is_cancelled else "⚠️ <b>تم إلغاء البث يدوياً!</b>"
+        final_msg = (f"{status_text}\n\n"
+                     f"✅ ناجح: {stats['suc']}\n"
+                     f"❌ فاشل: {stats['fail']}\n"
+                     f"📊 الإجمالي: {stats['processed']}/{total_estimate}")
+        
         if st:
             try: bot.edit_message_text(final_msg, message.chat.id, st.message_id, parse_mode="HTML")
             except: bot.send_message(message.chat.id, final_msg, parse_mode="HTML")

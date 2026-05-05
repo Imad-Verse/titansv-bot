@@ -79,6 +79,19 @@ def callback_query(call):
         bots_list_command(build_mock_message(call))
         return
 
+    elif call.data == 'menu_user_stats':
+        from titan_bot.handlers.user import stats_command
+        bot.answer_callback_query(call.id)
+        stats_command(build_mock_message(call))
+        return
+
+    elif call.data == 'cancel_broadcast':
+        from titan_bot.core import loader
+        with loader.state_lock:
+            loader.broadcast_active = False
+        bot.answer_callback_query(call.id, "⚠️ جاري إلغاء الإذاعة...")
+        return
+
     elif call.data == 'menu_back_to_main':
         bot.answer_callback_query(call.id)
         try: bot.delete_message(call.message.chat.id, call.message.message_id)
