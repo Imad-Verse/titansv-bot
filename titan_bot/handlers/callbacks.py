@@ -92,6 +92,7 @@ def callback_query(call):
         bot.answer_callback_query(call.id, "⚠️ تم إلغاء الإذاعة")
         try: bot.delete_message(call.message.chat.id, call.message.message_id)
         except: pass
+        send_main_menu(call.message.chat.id, uid, call.from_user.username, call.from_user.first_name)
         return
 
     elif call.data.startswith('delete_broadcast|') and uid == ADMIN_ID:
@@ -146,6 +147,7 @@ def callback_query(call):
     elif call.data == 'cancel_broadcast_menu' and uid == ADMIN_ID:
         try: bot.delete_message(call.message.chat.id, call.message.message_id)
         except: pass
+        send_main_menu(call.message.chat.id, uid, call.from_user.username, call.from_user.first_name)
 
     elif call.data == 'refresh_stats' and uid == ADMIN_ID:
         # NOTE: This is usually handled by admin.py because it's in ADMIN_CALLBACKS.

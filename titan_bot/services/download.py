@@ -1627,6 +1627,7 @@ def perform_all_broadcast(message):
 
             start_time = time.time()
             last_update_time = start_time
+            batch_data = []
 
             for user_id in user_generator():
                 if not loader.broadcast_active: 
@@ -1635,10 +1636,20 @@ def perform_all_broadcast(message):
                 future = executor.submit(send_wrapper, user_id)
                 futures.append(future)
                 
-                # Limit pending futures
+                # Limit pending futures and collect results
                 if len(futures) > 50:
                     done = [f for f in futures if f.done()]
-                    for f in done: futures.remove(f)
+                    for f in done:
+                        try:
+                            res = f.result()
+                            if res:
+                                batch_data.append((broadcast_id, res[0], res[1]))
+                        except: pass
+                        futures.remove(f)
+                    
+                    if len(batch_data) >= 200:
+                        log_broadcast_messages_batch(batch_data)
+                        batch_data.clear()
                 
                 # تحديث التقدم كل ثانيتين أو كل 20 مستخدم
                 current_time = time.time()
@@ -1671,17 +1682,13 @@ def perform_all_broadcast(message):
                         last_update_time = current_time
                     except: pass
             
-            batch_data = []
             for f in as_completed(futures):
                 try:
                     res = f.result()
                     if res:
                         batch_data.append((broadcast_id, res[0], res[1]))
-                except:
-                    pass
-                if len(batch_data) >= 500:
-                    log_broadcast_messages_batch(batch_data)
-                    batch_data.clear()
+                except: pass
+                
             if batch_data:
                 log_broadcast_messages_batch(batch_data)
     
