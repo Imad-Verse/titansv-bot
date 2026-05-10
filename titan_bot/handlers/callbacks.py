@@ -88,7 +88,22 @@ def callback_query(call):
     elif call.data == 'cancel_broadcast':
         with loader.state_lock:
             loader.broadcast_active = False
-        bot.answer_callback_query(call.id, "⚠️ جاري إلغاء الإذاعة...")
+        bot.clear_step_handler_by_chat_id(call.message.chat.id)
+        bot.answer_callback_query(call.id, "⚠️ تم إلغاء الإذاعة")
+        try: bot.delete_message(call.message.chat.id, call.message.message_id)
+        except: pass
+        return
+
+    elif call.data.startswith('delete_broadcast|') and uid == ADMIN_ID:
+        _, broadcast_id = call.data.split('|', 1)
+        download_service.delete_broadcast_action(call, broadcast_id)
+        return
+
+    elif call.data.startswith('edit_broadcast_start|') and uid == ADMIN_ID:
+        _, broadcast_id = call.data.split('|', 1)
+        bot.answer_callback_query(call.id)
+        msg = bot.send_message(call.message.chat.id, "✏️ <b>أرسل الآن النص الجديد أو الصورة مع الشرح الجديد:</b>\n(سيتم استبدال المحتوى القديم عند جميع المستخدمين)", parse_mode="HTML", reply_markup=types.ForceReply())
+        bot.register_next_step_handler(msg, lambda m: ask_edit_broadcast_step(m, broadcast_id))
         return
 
     elif call.data == 'menu_back_to_main':
@@ -180,12 +195,7 @@ def callback_query(call):
             bot.answer_callback_query(call.id, translation_system.get(uid, 'request_processing_failed'), show_alert=True)
         return
 
-    elif call.data == 'cancel_broadcast':
-        bot.answer_callback_query(call.id, "تم الإلغاء")
-        bot.clear_step_handler_by_chat_id(call.message.chat.id)
-        loader.broadcast_active = False 
-        try: bot.delete_message(call.message.chat.id, call.message.message_id)
-        except: pass
+
 
     elif call.data == "verify_sub": 
         from titan_bot.handlers.user import check_sub
@@ -285,3 +295,10 @@ def ask_broadcast_id_step(message):
         
     msg = bot.send_message(message.chat.id, f"📝 <b>أرسل الرسالة التي تريد إرسالها إلى {uid}:</b>", parse_mode="HTML")
     bot.register_next_step_handler(msg, lambda m: download_service.perform_specific_broadcast(m, uid))
+
+def ask_edit_broadcast_step(message, broadcast_id):
+    if message.text == '/cancel' or message.text == '❌ إلغاء':
+        bot.send_message(message.chat.id, "✅ تم إلغاء عملية التعديل")
+        return
+    
+    download_service.edit_broadcast_action(message, broadcast_id)

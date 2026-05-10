@@ -58,6 +58,13 @@ def init_db():
                 msg_id TEXT,
                 sid TEXT)''')
             
+            cursor.execute('''CREATE TABLE IF NOT EXISTS broadcast_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                broadcast_id TEXT,
+                user_id TEXT,
+                message_id TEXT
+            )''')
+            
             # ملاحظة: تم إلغاء جدول القنوات والمجموعات بناءً على طلب المستخدم
 
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_date ON download_logs(date);')
@@ -65,6 +72,7 @@ def init_db():
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_user ON download_logs(user_id);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_download_count ON users(download_count DESC);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_broadcast_id ON broadcast_messages(broadcast_id);')
             conn.commit()
             
             # إصلاح/تحديث الأعمدة إذا لزم الأمر
@@ -506,3 +514,31 @@ def get_total_users_count():
     except Exception as e:
         logger.error(f"Get total users count error: {e}")
         return 0
+
+def log_broadcast_messages_batch(messages_batch):
+    """messages_batch is a list of tuples: (broadcast_id, user_id, message_id)"""
+    if not messages_batch: return
+    try:
+        with _connect_db() as conn:
+            conn.executemany('INSERT INTO broadcast_messages (broadcast_id, user_id, message_id) VALUES (?, ?, ?)', messages_batch)
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Log broadcast batch error: {e}")
+
+def get_broadcast_messages(broadcast_id):
+    try:
+        with _connect_db() as conn:
+            cursor = conn.cursor()
+            rows = cursor.execute('SELECT user_id, message_id FROM broadcast_messages WHERE broadcast_id=?', (str(broadcast_id),)).fetchall()
+            return rows
+    except Exception as e:
+        logger.error(f"Get broadcast messages error: {e}")
+        return []
+
+def delete_broadcast_messages_db(broadcast_id):
+    try:
+        with _connect_db() as conn:
+            conn.execute('DELETE FROM broadcast_messages WHERE broadcast_id=?', (str(broadcast_id),))
+            conn.commit()
+    except Exception as e:
+        logger.error(f"Delete broadcast messages error: {e}")

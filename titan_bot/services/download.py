@@ -37,7 +37,7 @@ from titan_bot.core.utils import (
     generate_sid,
     check_ffmpeg_available,
 )
-from titan_bot.core.database import log_download, update_download_stats, delete_user, get_user_details
+from titan_bot.core.database import log_download, update_download_stats, delete_user, get_user_details, log_broadcast_messages_batch, get_broadcast_messages, delete_broadcast_messages_db
 from titan_bot.services.translation import translation_system
 
 # دالة إنشاء رسالة التقدم
@@ -914,6 +914,8 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
             ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+        elif quality_type == 'low':
+            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
         else:
             ydl_opts['format'] = 'worstvideo+bestaudio/worst'
     elif platform == 'youtube':
@@ -924,6 +926,8 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
              ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
              ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+        elif quality_type == 'low':
+             ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
         elif quality_type == 'audio':
              ydl_opts['format'] = 'bestaudio/best'
              ydl_opts['postprocessors'] = [{
@@ -940,6 +944,8 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
             ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+        elif quality_type == 'low':
+            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
         ydl_opts['noplaylist'] = True
     
     return ydl_opts
@@ -1300,7 +1306,8 @@ def process_download(message, quality_type):
                             bot.send_audio(
                                 message.chat.id, a,
                                 caption=f"🎵 <b>{video_title}</b>\n\n{BOT_SIG}",
-                                parse_mode="HTML"
+                                parse_mode="HTML",
+                                timeout=500
                             )
                     elif quality_type == 'mute':
                         mute_path = mute_video_file(file_path)
@@ -1498,14 +1505,16 @@ def process_local_conversion(message, sid, conversion_type):
                 bot.send_audio(
                     message.chat.id, a,
                     caption=f"🎵 {translation_system.get(uid, 'audio_success', bot_sig=BOT_SIG)}",
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    timeout=500
                 )
         else:
             with open(output_file, 'rb') as v:
                 bot.send_video(
                     message.chat.id, v,
                     caption=f"🔇 {translation_system.get(uid, 'mute_success', bot_sig=BOT_SIG)}",
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    timeout=500
                 )
         
         delayed_delete(output_file)
@@ -1534,6 +1543,7 @@ def perform_all_broadcast(message):
     
     st = None
     try:
+        broadcast_id = str(int(time.time() * 1000))
         st = bot.send_message(message.chat.id, "🚀 جاري بدء الإذاعة...")
         
         markup = types.InlineKeyboardMarkup()
@@ -1561,22 +1571,24 @@ def perform_all_broadcast(message):
             if not loader.broadcast_active: return
             try:
                 time.sleep(0.15)
+                msg_obj = None
                 if content_type == 'text':
                     full_text = f"{header_msg}\n\n\"{content_data}\"\n\n{BOT_SIG}"
-                    bot.send_message(int(user_id), full_text, parse_mode="HTML", reply_markup=markup)
+                    msg_obj = bot.send_message(int(user_id), full_text, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'photo':
                     full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
-                    bot.send_photo(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
+                    msg_obj = bot.send_photo(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'video':
                     full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
-                    bot.send_video(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
+                    msg_obj = bot.send_video(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'document':
                     full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
-                    bot.send_document(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
+                    msg_obj = bot.send_document(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'audio':
                     full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
-                    bot.send_audio(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
+                    msg_obj = bot.send_audio(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 stats['suc'] += 1
+                return (str(user_id), str(msg_obj.message_id)) if msg_obj else None
             except telebot.apihelper.ApiTelegramException as e:
                 stats['fail'] += 1
                 if e.error_code in [403, 400]:
@@ -1659,7 +1671,19 @@ def perform_all_broadcast(message):
                         last_update_time = current_time
                     except: pass
             
-            for f in as_completed(futures): pass
+            batch_data = []
+            for f in as_completed(futures):
+                try:
+                    res = f.result()
+                    if res:
+                        batch_data.append((broadcast_id, res[0], res[1]))
+                except:
+                    pass
+                if len(batch_data) >= 500:
+                    log_broadcast_messages_batch(batch_data)
+                    batch_data.clear()
+            if batch_data:
+                log_broadcast_messages_batch(batch_data)
     
     except Exception as e:
         logger.error(f"Broadcast Error: {e}")
@@ -1669,6 +1693,12 @@ def perform_all_broadcast(message):
     finally:
         is_cancelled = not loader.broadcast_active
         with loader.state_lock: loader.broadcast_active = False
+
+        markup_final = types.InlineKeyboardMarkup()
+        markup_final.row(
+            types.InlineKeyboardButton("✏️ تعديل الإذاعة", callback_data=f"edit_broadcast_start|{broadcast_id}"),
+            types.InlineKeyboardButton("🗑 حذف الإذاعة", callback_data=f"delete_broadcast|{broadcast_id}")
+        )
         
         status_text = "✅ <b>تم الانتهاء!</b>" if not is_cancelled else "⚠️ <b>تم إلغاء البث يدوياً!</b>"
         final_msg = (f"{status_text}\n\n"
@@ -1677,10 +1707,10 @@ def perform_all_broadcast(message):
                      f"📊 الإجمالي: {stats['processed']}/{total_estimate}")
         
         if st:
-            try: bot.edit_message_text(final_msg, message.chat.id, st.message_id, parse_mode="HTML")
-            except: bot.send_message(message.chat.id, final_msg, parse_mode="HTML")
+            try: bot.edit_message_text(final_msg, message.chat.id, st.message_id, parse_mode="HTML", reply_markup=markup_final)
+            except: bot.send_message(message.chat.id, final_msg, parse_mode="HTML", reply_markup=markup_final)
         else:
-            try: bot.send_message(message.chat.id, final_msg, parse_mode="HTML")
+            try: bot.send_message(message.chat.id, final_msg, parse_mode="HTML", reply_markup=markup_final)
             except: pass
 
 def perform_specific_broadcast(message, target_user_id):

@@ -89,6 +89,10 @@ def handle_message(message):
         types.InlineKeyboardButton("🎬 جودة عالية 720+", callback_data=f"dl_high|{sid}"),
         types.InlineKeyboardButton("🎥 جودة متوسطة 480", callback_data=f"dl_medium|{sid}")
     )
+    markup.row(
+        types.InlineKeyboardButton("📱 جودة منخفضة 360", callback_data=f"dl_low|{sid}"),
+        types.InlineKeyboardButton("🎵 تحميل صوت فقط", callback_data=f"dl_audio|{sid}")
+    )
     
     # رسالة اختيار الجودة (تم التحسين للرد على الرسالة الأصلية لسهولة التتبع)
     bot.reply_to(
@@ -97,4 +101,3 @@ def handle_message(message):
         reply_markup=markup, 
         parse_mode="HTML"
     )
-
