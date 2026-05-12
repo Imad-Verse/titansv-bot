@@ -1,59 +1,63 @@
-# 🤖 Titan SV Bot
+# 🤖 Titan Downloader Bot
 
-**Titan SV Bot** هو بوت تليجرام متطور وقوي مصمم لتحميل الوسائط (فيديوهات، صور، ملفات صوتية) من مختلف المنصات الاجتماعية بسهولة وسرعة، مع دعم كامل للغات المتعددة وواجهة مستخدم بديهية.
+A professional Telegram bot for downloading high-quality videos and audio from various social media platforms.
 
-## 🚀 المميزات
-- **تحميل الوسائط**: دعم التحميل من أشهر المنصات (يوتيوب، تيك توك، إنستغرام، وغيرها).
-- **تحويل الصيغ**: استخراج الصوت من الفيديوهات بجودة عالية.
-- **تعدد اللغات**: دعم كامل للغتين العربية والإنجليزية.
-- **لوحة تحكم للمديرين**: إحصائيات، رسائل جماعية، وإدارة المستخدمين.
-- **تنظيف تلقائي**: نظام لجدولة تنظيف الملفات المؤقتة للحفاظ على مساحة الخادم.
-- **تنبيهات ذكية**: إشعارات عند إعادة التشغيل أو حدوث أخطاء.
+## ⚡ Features
 
-## 🛠️ المتطلبات
-- Python 3.9+
-- [FFmpeg](https://ffmpeg.org/) (ضروري لاستخراج الصوت ومعالجة الفيديوهات)
-- مكتبات Python المذكورة في `requirements.txt`
+- **Multi-platform Support**: YouTube, TikTok, Facebook, Instagram, Pinterest, Twitter (X), Snapchat, Threads.
+- **High Quality**: Supports resolutions up to 1080p and beyond.
+- **Audio Extraction**: Convert any video to high-quality MP3.
+- **Video Muting**: Download videos without sound.
+- **Progress Tracking**: Real-time progress bar during download and upload.
+- **Multi-language**: Fully supports Arabic, English, and French.
+- **Admin Panel**: Comprehensive dashboard for bot management and statistics.
+- **Forced Subscription**: Option to require users to join specific channels.
 
-## ⚙️ التثبيت والتشغيل
+## 🏗 Project Structure
 
-1. **تحميل المشروع**:
+```text
+TitanSv_bot/
+├── data/               # SQLite database and backups
+├── logs/               # Bot and system logs
+├── cookies/            # Cookies for platform authentication
+├── src/                # Core source code
+│   ├── core/           # Configuration and database engine
+│   ├── handlers/       # Categorized Telegram handlers
+│   ├── services/       # External services (yt-dlp integration)
+│   └── utils/          # Utility helper functions
+├── .env                # Environment variables
+├── requirements.txt    # Python dependencies
+└── run.py              # Main entry point
+```
+
+## 🚀 Setup & Installation
+
+1. **Clone the repository**:
    ```bash
-   git clone https://github.com/your-username/TitanSv_bot.git
+   git clone <repository-url>
    cd TitanSv_bot
    ```
 
-2. **إنشاء بيئة افتراضية**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # لنظام Linux/Mac
-   venv\Scripts\activate     # لنظام Windows
-   ```
-
-3. **تثبيت المكتبات**:
+2. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
 
-4. **الإعداد**:
-   - قم بتغيير اسم الملف `.env.example` إلى `.env`.
-   - أضف توكن البوت الخاص بك (`TELEGRAM_BOT_TOKEN`) ومعرف الأدمن (`ADMIN_ID`).
+3. **Configure Environment Variables**:
+   Create a `.env` file based on the provided template and add your `TELEGRAM_BOT_TOKEN` and `ADMIN_ID`.
 
-5. **التشغيل**:
+4. **Install FFmpeg**:
+   Ensure `ffmpeg` is installed on your system and added to your PATH.
+
+5. **Run the bot**:
    ```bash
-   python main.py
+   python run.py
    ```
 
-## 📂 هيكل المشروع
-- `titan_bot/`: المجلد الرئيسي للكود.
-  - `handlers/`: معالجات الأوامر والرسائل.
-  - `services/`: الخدمات الخارجية (تحميل، ترجمة).
-  - `core/`: الإعدادات الأساسية، قاعدة البيانات، واللوادر.
-- `data/`: تخزين قاعدة البيانات المحلية.
-- `downloads/`: المجلد المؤقت للتحميلات.
+## 👨‍💻 Developer
 
-## 🤝 المساهمة
-المساهمات دائماً مرحب بها! إذا وجدت ثغرة أو لديك اقتراح لميزة جديدة، يرجى فتح `Issue` أو إرسال `Pull Request`.
+- **Imad** - [@abulharith_imad](https://t.me/abulharith_imad)
 
-## 📄 الترخيص
-هذا المشروع متاح تحت رخصة MIT.
+## ⚠️ Disclaimer
+
+This bot is intended for personal use and downloading content you have permission to access. Please respect the copyrights and terms of service of the respective platforms.

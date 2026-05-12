@@ -10,24 +10,12 @@ from urllib.parse import urlparse
 from html import escape
 from telebot import types
 import telebot
-from concurrent.futures import ThreadPoolExecutor, as_completed
-import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 
-from titan_bot.core.config import (
-    ADMIN_ID,
-    BOT_SIG,
-    ADMIN_DIR,
-    USERS_DIR,
-    DB_FILE,
-    MAX_FILE_SIZE,
-    TELEGRAM_UPLOAD_LIMIT,
-    TELEGRAM_UPLOAD_LIMIT_MB,
-    ALLOWED_PLATFORMS,
-)
-from titan_bot.core.loader import bot
-import titan_bot.core.loader as loader
-from titan_bot.core.loader import get_error_markup
-from titan_bot.core.utils import (
+from src.core.config import Config
+from src.core.loader import bot, BotState
+from src.utils.ui import get_error_markup
+from src.core.utils import (
     logger,
     format_seconds,
     delayed_delete,
@@ -37,8 +25,19 @@ from titan_bot.core.utils import (
     generate_sid,
     check_ffmpeg_available,
 )
-from titan_bot.core.database import log_download, update_download_stats, delete_user, get_user_details, log_broadcast_messages_batch, get_broadcast_messages, delete_broadcast_messages_db
-from titan_bot.services.translation import translation_system
+from src.core.database import (
+    log_download, 
+    update_download_stats, 
+    delete_user, 
+    get_user_details, 
+    log_broadcast_messages_batch, 
+    get_broadcast_messages, 
+    delete_broadcast_messages_db,
+    get_url_by_sid,
+    get_total_users_count,
+    get_active_user_ids
+)
+from src.services.translation import translation_system
 
 # دالة إنشاء رسالة التقدم
 def create_progress_message(chat_id, text, percent=0, markup=None):
@@ -58,23 +57,23 @@ def update_progress_message(msg_id, chat_id, text, percent, markup=None):
         return False
 
 def _acquire_download_slot(uid):
-    with loader.state_lock:
-        if uid in loader.active_downloads:
+    with BotState.lock:
+        if uid in BotState.active_downloads:
             return "already_processing"
-        if len(loader.active_downloads) >= 15:
+        if len(BotState.active_downloads) >= 15:
             return "server_busy"
-        loader.active_downloads.add(uid)
+        BotState.active_downloads.add(uid)
         return "ok"
 
 
 def _release_download_slot(uid):
-    with loader.state_lock:
-        loader.active_downloads.discard(uid)
+    with BotState.lock:
+        BotState.active_downloads.discard(uid)
 
 
 def _start_progress(uid, message, sid, text):
     cancel_event = threading.Event()
-    loader.user_requests[uid] = {'sid': sid, 'cancel_event': cancel_event}
+    BotState.user_requests[uid] = {'sid': sid, 'cancel_event': cancel_event}
     progress_markup = cancel_markup(sid, uid)
     progress_msg = create_progress_message(message.chat.id, text, 5, markup=progress_markup)
     return cancel_event, progress_msg, progress_markup
@@ -155,7 +154,7 @@ def _build_file_too_large_message(uid, size_mb=0):
 
 
 def _exceeds_telegram_upload_limit(size_bytes):
-    return bool(size_bytes and TELEGRAM_UPLOAD_LIMIT > 0 and size_bytes > TELEGRAM_UPLOAD_LIMIT)
+    return bool(size_bytes and Config.TELEGRAM_UPLOAD_LIMIT > 0 and size_bytes > Config.TELEGRAM_UPLOAD_LIMIT)
 
 
 _METRIC_LINE_RE = re.compile(
@@ -706,13 +705,13 @@ def _handle_photo_not_supported(message, uid, platform, sid):
 
 
 def get_bot_username():
-    if loader.BOT_USERNAME:
-        return loader.BOT_USERNAME
+    if BotState.username:
+        return BotState.username
     try:
-        loader.BOT_USERNAME = bot.get_me().username
+        BotState.username = bot.get_me().username
     except Exception:
-        loader.BOT_USERNAME = ""
-    return loader.BOT_USERNAME
+        BotState.username = ""
+    return BotState.username
 
 def precheck_media_info(url, ydl_opts):
     try:
@@ -1043,7 +1042,7 @@ def send_download_report(user_id, url, size, title, platform, sid):
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("📋 نسخ الرابط", callback_data=f"copy_link|{sid}"))
         
-        bot.send_message(ADMIN_ID, msg, parse_mode="HTML", reply_markup=markup)
+        bot.send_message(Config.ADMIN_ID, msg, parse_mode="HTML", reply_markup=markup)
     except Exception as e:
         logger.error(f"Report error: {e}")
         pass
@@ -1095,16 +1094,16 @@ def send_failure_report(user_id, url, platform, reason, sid="", size_mb=0, title
             markup = types.InlineKeyboardMarkup()
             markup.add(types.InlineKeyboardButton("📋 نسخ الرابط", callback_data=f"copy_link|{sid}"))
 
-        bot.send_message(ADMIN_ID, msg, parse_mode="HTML", reply_markup=markup)
+        bot.send_message(Config.ADMIN_ID, msg, parse_mode="HTML", reply_markup=markup)
     except Exception as e:
         logger.error(f"Failure report error: {e}")
         pass
 
 def maybe_report_failure(user_id, url, platform, reason, sid="", size_mb=0, title=""):
-    if loader.REPORT_LOGS and user_id != ADMIN_ID:
+    if BotState.report_logs and user_id != Config.ADMIN_ID:
         send_failure_report(user_id, url, platform, reason, sid=sid, size_mb=size_mb, title=title)
 
-def process_download(message, quality_type):
+def process_download(message, quality_type, url=None):
     uid = message.from_user.id
     time.sleep(0.5)
     
@@ -1121,9 +1120,9 @@ def process_download(message, quality_type):
     
     try:
         sid = sanitize_filename(generate_sid())
-        platform = detect_platform_from_url(message.text)
-        source_url = message.text
-        download_url = message.text
+        platform = detect_platform_from_url(url or message.text)
+        source_url = url or message.text
+        download_url = url or message.text
         video_title = ""
         file_size_mb = 0
         if platform == 'tiktok':
@@ -1150,23 +1149,23 @@ def process_download(message, quality_type):
                 parse_mode="HTML",
                 reply_markup=get_error_markup(uid)
             )
-            log_download(uid, message.text, "failed", platform=platform, sid=sid, error_reason=error_reason)
+            log_download(uid, source_url, "failed", platform=platform, sid=sid, error_reason=error_reason)
             if error_reason != "invalid_link":
-                maybe_report_failure(uid, message.text, platform, error_reason, sid=sid)
+                maybe_report_failure(uid, source_url, platform, error_reason, sid=sid)
             return
 
         if quality_type in ['audio', 'mute'] and not check_ffmpeg_available():
             bot.send_message(message.chat.id, translation_system.get(uid, 'ffmpeg_missing'), parse_mode="HTML", reply_markup=get_error_markup(uid))
-            log_download(uid, message.text, "failed", platform=platform, sid=sid, error_reason="ffmpeg_missing")
-            maybe_report_failure(uid, message.text, platform, "ffmpeg_missing", sid=sid)
+            log_download(uid, source_url, "failed", platform=platform, sid=sid, error_reason="ffmpeg_missing")
+            maybe_report_failure(uid, source_url, platform, "ffmpeg_missing", sid=sid)
             return
 
         download_started_text = translation_system.get(uid, 'download_started')
         cancel_event, progress_msg, progress_markup = _start_progress(uid, message, sid, download_started_text)
-        target_dir = ADMIN_DIR if uid == ADMIN_ID else USERS_DIR
+        target_dir = Config.ADMIN_DOWNLOADS if uid == Config.ADMIN_ID else Config.USERS_DOWNLOADS
         output_template = os.path.join(target_dir, f"video_{sid}.%(ext)s")
         
-        cookies_file = get_cookies_file(message.text)
+        cookies_file = get_cookies_file(source_url)
         
         download_progress_hook = _build_progress_hook(cancel_event, progress_msg, message.chat.id, download_started_text, progress_markup)
         
@@ -1192,8 +1191,8 @@ def process_download(message, quality_type):
                     )
             except:
                 pass
-            log_download(uid, message.text, "failed", platform=platform, sid=sid, size_mb=size_mb, error_reason="file_too_large")
-            maybe_report_failure(uid, message.text, platform, "file_too_large", sid=sid, size_mb=size_mb)
+            log_download(uid, source_url, "failed", platform=platform, sid=sid, size_mb=size_mb, error_reason="file_too_large")
+            maybe_report_failure(uid, source_url, platform, "file_too_large", sid=sid, size_mb=size_mb)
             return
 
         if cancel_event.is_set():
@@ -1278,7 +1277,7 @@ def process_download(message, quality_type):
                         platform,
                         duration,
                         formatted_size,
-                        BOT_SIG
+                        Config.BOT_SIG
                     )
 
                     def simulate_upload_progress():
@@ -1305,7 +1304,7 @@ def process_download(message, quality_type):
                         with open(file_path, 'rb') as a:
                             bot.send_audio(
                                 message.chat.id, a,
-                                caption=f"🎵 <b>{video_title}</b>\n\n{BOT_SIG}",
+                                caption=f"🎵 <b>{video_title}</b>\n\n{Config.BOT_SIG}",
                                 parse_mode="HTML",
                                 timeout=500
                             )
@@ -1365,11 +1364,11 @@ def process_download(message, quality_type):
                          # نحتاج طريقة لتحديث المتغير العام في loader إذا لزم الأمر
                          pass
             
-                    if loader.REPORT_LOGS and uid != ADMIN_ID: 
+                    if BotState.report_logs and uid != Config.ADMIN_ID: 
                         send_download_report(uid, message.text, file_size_mb, video_title, platform, sid)
             
                     # تسجيل في قاعدة البيانات
-                    log_download(uid, message.text, "success", size_mb=file_size_mb, platform=platform, title=video_title, sid=sid, error_reason="")
+                    log_download(uid, source_url, "success", size_mb=file_size_mb, platform=platform, title=video_title, sid=sid, error_reason="")
 
             else:
                 raise Exception("File empty or not found")
@@ -1387,7 +1386,7 @@ def process_download(message, quality_type):
                         os.remove(file_path)
                 except:
                     pass
-                log_download(uid, message.text, "cancelled", platform=platform, sid=sid, error_reason="user_cancelled")
+                log_download(uid, source_url, "cancelled", platform=platform, sid=sid, error_reason="user_cancelled")
                 bot.send_message(message.chat.id, translation_system.get(uid, 'download_cancelled'))
                 return
 
@@ -1395,7 +1394,7 @@ def process_download(message, quality_type):
 
             log_download(
                 uid,
-                message.text,
+                source_url,
                 "failed",
                 platform=platform,
                 sid=sid,
@@ -1405,7 +1404,7 @@ def process_download(message, quality_type):
             )
             maybe_report_failure(
                 uid,
-                message.text,
+                source_url,
                 platform,
                 error_reason,
                 sid=sid,
@@ -1432,7 +1431,7 @@ def process_download(message, quality_type):
     finally:
         _release_download_slot(uid)
         try:
-            loader.user_requests.pop(uid, None)
+            BotState.user_requests.pop(uid, None)
         except:
             pass
 
@@ -1448,15 +1447,19 @@ def process_local_conversion(message, sid, conversion_type):
         return
     
     # Try to find the original video file
-    target_dir = ADMIN_DIR if uid == ADMIN_ID else USERS_DIR
+    target_dir = Config.ADMIN_DOWNLOADS if uid == Config.ADMIN_ID else Config.USERS_DOWNLOADS
     input_file = find_downloaded_file(target_dir, sid)
     
     if not input_file or not os.path.exists(input_file):
         # File expired or deleted, fallback to full download
-        if conversion_type == 'audio':
-            process_download(message, 'audio')
-        else: # mute
-            process_download(message, 'mute')
+        original_url = get_url_by_sid(sid)
+        if original_url:
+            if conversion_type == 'audio':
+                process_download(message, 'audio', url=original_url)
+            else: # mute
+                process_download(message, 'mute', url=original_url)
+        else:
+            bot.send_message(message.chat.id, translation_system.get(uid, 'session_expired'), parse_mode="HTML")
         return
 
     # File exists, perform local conversion
@@ -1504,7 +1507,7 @@ def process_local_conversion(message, sid, conversion_type):
             with open(output_file, 'rb') as a:
                 bot.send_audio(
                     message.chat.id, a,
-                    caption=f"🎵 {translation_system.get(uid, 'audio_success', bot_sig=BOT_SIG)}",
+                    caption=f"🎵 {translation_system.get(uid, 'audio_success', bot_sig=Config.BOT_SIG)}",
                     parse_mode="HTML",
                     timeout=500
                 )
@@ -1512,7 +1515,7 @@ def process_local_conversion(message, sid, conversion_type):
             with open(output_file, 'rb') as v:
                 bot.send_video(
                     message.chat.id, v,
-                    caption=f"🔇 {translation_system.get(uid, 'mute_success', bot_sig=BOT_SIG)}",
+                    caption=f"🔇 {translation_system.get(uid, 'mute_success', bot_sig=Config.BOT_SIG)}",
                     parse_mode="HTML",
                     timeout=500
                 )
@@ -1526,20 +1529,21 @@ def process_local_conversion(message, sid, conversion_type):
         try: bot.delete_message(message.chat.id, msg.message_id)
         except: pass
         # Fallback to download if local conversion fails
+        original_url = get_url_by_sid(sid)
         if conversion_type == 'audio':
-            process_download(message, 'audio')
+            process_download(message, 'audio', url=original_url)
         else:
-            process_download(message, 'mute')
+            process_download(message, 'mute', url=original_url)
 
 def perform_all_broadcast(message):
     uid = message.from_user.id
     stats = {'suc': 0, 'fail': 0, 'processed': 0}
 
-    with loader.state_lock:
-        if loader.broadcast_active:
+    with BotState.lock:
+        if BotState.is_broadcast_active:
             bot.reply_to(message, "⚠️ هناك إذاعة نشطة بالفعل! يرجى الانتظار حتى تنتهي.")
             return
-        loader.broadcast_active = True
+        BotState.is_broadcast_active = True
     
     st = None
     try:
@@ -1564,28 +1568,28 @@ def perform_all_broadcast(message):
             caption = message.caption or ''
         else:
             bot.edit_message_text("❌ نوع الوسائط غير مدعوم.", message.chat.id, st.message_id)
-            with loader.state_lock: loader.broadcast_active = False
+            with BotState.lock: BotState.is_broadcast_active = False
             return
 
         def send_wrapper(user_id):
-            if not loader.broadcast_active: return
+            if not BotState.is_broadcast_active: return
             try:
                 time.sleep(0.15)
                 msg_obj = None
                 if content_type == 'text':
-                    full_text = f"{header_msg}\n\n\"{content_data}\"\n\n{BOT_SIG}"
+                    full_text = f"{header_msg}\n\n\"{content_data}\"\n\n{Config.BOT_SIG}"
                     msg_obj = bot.send_message(int(user_id), full_text, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'photo':
-                    full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                    full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                     msg_obj = bot.send_photo(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'video':
-                    full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                    full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                     msg_obj = bot.send_video(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'document':
-                    full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                    full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                     msg_obj = bot.send_document(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 elif content_type == 'audio':
-                    full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                    full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                     msg_obj = bot.send_audio(int(user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 stats['suc'] += 1
                 return (str(user_id), str(msg_obj.message_id)) if msg_obj else None
@@ -1599,38 +1603,20 @@ def perform_all_broadcast(message):
             stats['processed'] += 1
 
         def user_generator():
-            with sqlite3.connect(DB_FILE, timeout=30) as conn:
-                try:
-                    conn.execute("PRAGMA busy_timeout = 30000;")
-                except Exception:
-                    pass
-                cursor = conn.cursor()
-                cursor.execute('SELECT user_id FROM users WHERE is_banned=0')
-                while True:
-                    batch = cursor.fetchmany(1000)
-                    if not batch: break
-                    for row in batch:
-                        yield row[0]
+            user_ids = get_active_user_ids()
+            for user_id in user_ids:
+                yield user_id
 
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = []
-            total_estimate = 0
-            try:
-                with sqlite3.connect(DB_FILE, timeout=30) as conn:
-                    try:
-                        conn.execute("PRAGMA busy_timeout = 30000;")
-                    except Exception:
-                        pass
-                    total_estimate = conn.execute('SELECT COUNT(*) FROM users WHERE is_banned=0').fetchone()[0]
-            except:
-                pass
+            total_estimate = get_total_users_count()
 
             start_time = time.time()
             last_update_time = start_time
             batch_data = []
 
             for user_id in user_generator():
-                if not loader.broadcast_active: 
+                if not BotState.is_broadcast_active: 
                     break
                 
                 future = executor.submit(send_wrapper, user_id)
@@ -1698,8 +1684,9 @@ def perform_all_broadcast(message):
         except: pass
     
     finally:
-        is_cancelled = not loader.broadcast_active
-        with loader.state_lock: loader.broadcast_active = False
+        is_cancelled = not BotState.is_broadcast_active
+        with BotState.lock:
+            BotState.is_broadcast_active = False
 
         markup_final = types.InlineKeyboardMarkup()
         markup_final.row(
@@ -1727,7 +1714,7 @@ def perform_specific_broadcast(message, target_user_id):
         return
         
     # التحقق من وجود المستخدم
-    from titan_bot.core.database import check_user_exists
+    from src.core.database import check_user_exists
     if not check_user_exists(target_user_id):
         bot.reply_to(message, f"❌ المستخدم <code>{target_user_id}</code> غير موجود في قاعدة البيانات.", parse_mode="HTML")
         return
@@ -1738,7 +1725,7 @@ def perform_specific_broadcast(message, target_user_id):
         caption = message.caption
         
         if content_type == 'text':
-            full_text = f"🔔 <b>رسالة من الإدارة:</b>\n\n{message.text}\n\n{BOT_SIG}"
+            full_text = f"🔔 <b>رسالة من الإدارة:</b>\n\n{message.text}\n\n{Config.BOT_SIG}"
         elif content_type == 'photo':
             content_data = message.photo[-1].file_id
         elif content_type == 'video':
@@ -1757,16 +1744,16 @@ def perform_specific_broadcast(message, target_user_id):
             if content_type == 'text':
                 bot.send_message(int(target_user_id), full_text, parse_mode="HTML", reply_markup=markup)
             elif content_type == 'photo':
-                full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                 bot.send_photo(int(target_user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
             elif content_type == 'video':
-                full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                 bot.send_video(int(target_user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
             elif content_type == 'document':
-                full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                 bot.send_document(int(target_user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
             elif content_type == 'audio':
-                full_caption = f"{header_msg}\n\n{caption}\n\n{BOT_SIG}" if caption else f"{header_msg}\n\n{BOT_SIG}"
+                full_caption = f"{header_msg}\n\n{caption}\n\n{Config.BOT_SIG}" if caption else f"{header_msg}\n\n{Config.BOT_SIG}"
                 bot.send_audio(int(target_user_id), content_data, caption=full_caption, parse_mode="HTML", reply_markup=markup)
                 
             bot.reply_to(message, f"✅ تم الإرسال بنجاح للمستخدم: <code>{target_user_id}</code>", parse_mode="HTML")

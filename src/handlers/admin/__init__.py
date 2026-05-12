@@ -1,11 +1,13 @@
 from telebot import types
 import os
 import time
-from titan_bot.core.config import ADMIN_ID, BOT_SIG, COOKIES_FILES
-from titan_bot.core.loader import bot
-import titan_bot.core.loader as loader
-from titan_bot.services.translation import translation_system
-from titan_bot.core.database import get_stats, ban_unban, get_top_users, auto_backup_database, get_detailed_stats
+from src.core.config import Config
+from src.core.loader import bot, BotState
+from src.services.translation import translation_system
+from src.core.database import get_stats, ban_unban, get_top_users, auto_backup_database, get_detailed_stats
+
+# استيراد وحدة الإذاعة لتفعيل معالجاتها
+import src.handlers.admin.broadcast
 
 def create_admin_markup():
     markup = types.InlineKeyboardMarkup(row_width=2)
@@ -19,14 +21,18 @@ def create_admin_markup():
     )
     markup.add(
         types.InlineKeyboardButton("💾 نسخة احتياطية", callback_data="backup_db"),
-        types.InlineKeyboardButton(f"وضع الصيانة: {'✅' if loader.MAINTENANCE_MODE else '❌'}", callback_data="toggle_maint")
+        types.InlineKeyboardButton(f"وضع الصيانة: {'✅' if BotState.is_maintenance else '❌'}", callback_data="toggle_maint")
     )
-    markup.add(types.InlineKeyboardButton("🔄 تحديث", callback_data="refresh_stats"))
+    markup.add(
+        types.InlineKeyboardButton("🖥 حالة السيرفر", callback_data="pc_status"),
+        types.InlineKeyboardButton("🔁 إعادة تشغيل", callback_data="sys_restart")
+    )
+    markup.add(types.InlineKeyboardButton("🔄 تحديث الإحصائيات", callback_data="refresh_stats"))
     return markup
 
 @bot.message_handler(commands=['boss', 'admin'])
 def admin_panel_command(message):
-    if message.from_user.id != ADMIN_ID: 
+    if message.from_user.id != Config.ADMIN_ID: 
         return
     send_admin_panel(message.chat.id)
 
@@ -68,18 +74,38 @@ def send_admin_panel(chat_id, message_id=None):
     else:
         bot.send_message(chat_id, text, parse_mode="HTML", reply_markup=markup)
 
-@bot.callback_query_handler(func=lambda call: call.data in ['refresh_stats', 'toggle_maint', 'more_stats', 'ban_unban_ask', 'backup_db', 'check_cookies'])
+@bot.callback_query_handler(func=lambda call: call.data in ['refresh_stats', 'toggle_maint', 'more_stats', 'ban_unban_ask', 'backup_db', 'check_cookies', 'pc_status', 'sys_restart', 'menu_admin_panel', 'broadcast_menu'])
 def admin_actions(call):
-    if call.from_user.id != ADMIN_ID: return
+    if call.from_user.id != Config.ADMIN_ID: return
     
-    if call.data == 'refresh_stats':
+    if call.data == 'refresh_stats' or call.data == 'menu_admin_panel':
         send_admin_panel(call.message.chat.id, call.message.message_id)
-        bot.answer_callback_query(call.id, "✅ تم التحديث")
+        bot.answer_callback_query(call.id, "✅ تم التحديث" if call.data == 'refresh_stats' else None)
         
+    elif call.data == 'broadcast_menu':
+        from src.handlers.admin.broadcast import broadcast_menu_handler
+        broadcast_menu_handler(call)
+
+    elif call.data == 'pc_status':
+        import shutil
+        total, used, free = shutil.disk_usage(Config.BASE_DIR)
+        disk_percent = (used / total) * 100
+        free_gb = free / (2**30)
+        status_msg = f"🖥 <b>حالة السيرفر:</b>\n💾 <b>القرص:</b> {disk_percent:.1f}% ({free_gb:.2f} GB free)"
+        bot.answer_callback_query(call.id)
+        bot.send_message(call.message.chat.id, status_msg, parse_mode="HTML")
+
+    elif call.data == 'sys_restart':
+        import sys
+        bot.answer_callback_query(call.id, "🔁 جاري إعادة تشغيل البوت...", show_alert=True)
+        with open(Config.RESTART_LOG, "w") as f: 
+            f.write(str(call.message.chat.id))
+        os.execl(sys.executable, sys.executable, *sys.argv)
+
     elif call.data == 'toggle_maint':
-        loader.MAINTENANCE_MODE = not loader.MAINTENANCE_MODE
+        BotState.is_maintenance = not BotState.is_maintenance
         
-        status = "مفعل ✅" if loader.MAINTENANCE_MODE else "معطل ❌"
+        status = "مفعل ✅" if BotState.is_maintenance else "معطل ❌"
         bot.answer_callback_query(call.id, f"تم تغيير وضع الصيانة إلى: {status}", show_alert=True)
         send_admin_panel(call.message.chat.id, call.message.message_id)
         
@@ -115,9 +141,9 @@ def admin_actions(call):
         now = time.time()
         found_issue = False
         
-        for platform, path in COOKIES_FILES.items():
-            if os.path.exists(path) and os.path.getsize(path) > 0:
-                age_days = (now - os.path.getmtime(path)) / (3600 * 24)
+        for platform, path in Config.COOKIES_FILES.items():
+            if path.exists() and path.stat().st_size > 0:
+                age_days = (now - path.stat().st_mtime) / (3600 * 24)
                 status = "✅ جيد"
                 if age_days > 7:
                     status = "⚠️ قديم (> 7 أيام)"
@@ -137,36 +163,27 @@ def admin_actions(call):
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, parse_mode="HTML", reply_markup=markup)
 
 def perform_ban_unban_step(message):
-    if message.text == '/start' or message.text == '/admin':
+    if message.text in ['/start', '/admin', '🔙 الغاء']:
         send_admin_panel(message.chat.id)
         return
         
     uid_to_ban = message.text.strip()
     if not uid_to_ban.isdigit():
-        bot.send_message(message.chat.id, "❌ الآيدي يجب أن يكون أرقاماً فقط. حاول مجدداً أو ارسل /admin للالغاء.")
+        bot.send_message(message.chat.id, "❌ الآيدي يجب أن يكون أرقاماً فقط. أرسل الآيدي الصحيح أو /admin للالغاء.")
         return
 
-    import sqlite3
-    from titan_bot.core.config import DB_FILE
+    # استخدام الدالة الجاهزة للتحقق من حالة الحظر
+    from src.core.database import is_banned as check_ban
     
-    is_banned = False
-    try:
-        with sqlite3.connect(DB_FILE, timeout=30) as conn:
-            try:
-                conn.execute("PRAGMA busy_timeout = 30000;")
-            except Exception:
-                pass
-            res = conn.execute("SELECT is_banned FROM users WHERE user_id=?", (uid_to_ban,)).fetchone()
-            if res and res[0] == 1:
-                is_banned = True
-    except:
-        pass
+    already_banned = check_ban(uid_to_ban)
+    new_status = not already_banned
     
-    new_status = not is_banned
-    ban_unban(uid_to_ban, new_status)
-    
-    action = "تم حظره 🚫" if new_status else "تم الغاء حظره ✅"
-    bot.send_message(message.chat.id, f"👤 المستخدم: <code>{uid_to_ban}</code>\n<b>{action}</b>", parse_mode="HTML")
+    if ban_unban(uid_to_ban, new_status):
+        action = "تم حظره بنجاح 🚫" if new_status else "تم إلغاء الحظر بنجاح ✅"
+        bot.send_message(message.chat.id, f"👤 المستخدم: <code>{uid_to_ban}</code>\n<b>{action}</b>", parse_mode="HTML")
+    else:
+        bot.send_message(message.chat.id, "❌ حدث خطأ أثناء محاولة تعديل حالة المستخدم. تأكد أن المستخدم موجود في قاعدة البيانات.")
+        
     send_admin_panel(message.chat.id)
 
 @bot.message_handler(func=lambda m: m.text in ["🛠 لوحة التحكم", "🛠 Control Panel", "🛠 Panneau de Contrôle"])

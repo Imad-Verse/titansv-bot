@@ -1,17 +1,17 @@
 from telebot import types
 from urllib.parse import quote
-from titan_bot.core.config import BOT_SIG, CHANNELS, ADMIN_ID, TELEGRAM_UPLOAD_LIMIT_MB
-from titan_bot.core.loader import bot, BOT_USERNAME
-from titan_bot.services.translation import translation_system
-from titan_bot.core.database import add_user
-from titan_bot.core.utils import logger
+from src.core.config import Config
+from src.core.loader import bot, BotState
+from src.services.translation import translation_system
+from src.core.database import add_user
+from src.core.utils import logger
 
 LEGACY_KEYBOARD_CLEARED = set()
 
 def check_sub(user_id):
     """التحقق من الاشتراك في القنوات"""
     not_subscribed = []
-    for channel in CHANNELS:
+    for channel in Config.CHANNELS:
         try:
             # تنظيف اسم القناة
             clean_channel = channel.strip()
@@ -37,8 +37,9 @@ def create_main_markup(user_id, is_admin=False):
     bots_list_btn = translation_system.get(user_id, 'main_menu_buttons', key='bots_list')
     stats_btn = translation_system.get(user_id, 'main_menu_buttons', key='user_stats')
     
-    share_msg = translation_system.get(user_id, 'share_message', bot_username=BOT_USERNAME or "bot")
-    share_url = f"https://t.me/share/url?url=https://t.me/{BOT_USERNAME or ''}&text={quote(share_msg)}"
+    bot_username = BotState.username or "bot"
+    share_msg = translation_system.get(user_id, 'share_message', bot_username=bot_username)
+    share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text={quote(share_msg)}"
     markup.row(
         types.InlineKeyboardButton(start_btn, url=share_url),
         types.InlineKeyboardButton(lang_btn, callback_data="menu_language")
@@ -76,8 +77,8 @@ def send_main_menu(chat_id, user_id, username=None, first_name=None):
     add_user(user_id, username or "None", first_name or "User")
     clear_legacy_keyboard(chat_id)
 
-    is_admin = (user_id == ADMIN_ID)
-    start_text = translation_system.get(user_id, 'start_message', bot_sig=BOT_SIG)
+    is_admin = (user_id == Config.ADMIN_ID)
+    start_text = translation_system.get(user_id, 'start_message', bot_sig=Config.BOT_SIG)
 
     bot.send_message(
         chat_id,
@@ -87,6 +88,7 @@ def send_main_menu(chat_id, user_id, username=None, first_name=None):
     )
 
 @bot.message_handler(commands=['start'])
+@bot.message_handler(func=lambda m: m.text in ["📢 مشاركة البوت", "📢 Share Bot", "📢 Partager le bot", "مشاركة البوت"])
 def start_command(message):
     uid = message.from_user.id
     fname = message.from_user.first_name or "User"
@@ -94,6 +96,7 @@ def start_command(message):
     send_main_menu(message.chat.id, uid, username, fname)
 
 @bot.message_handler(commands=['help', 'مساعدة'])
+@bot.message_handler(func=lambda m: m.text in ["🆘 المساعدة", "🆘 Help", "🆘 Aide", "مساعدة"])
 def help_command(message):
     uid = message.from_user.id
     fname = message.from_user.first_name or "User"
@@ -101,7 +104,7 @@ def help_command(message):
     add_user(uid, username, fname)
     
     # إعداد نص القنوات
-    channels_text = "\n".join([f"• {ch}" for ch in CHANNELS])
+    channels_text = "\n".join([f"• {ch}" for ch in Config.CHANNELS])
     
     help_title = translation_system.get(uid, 'help_title')
     help_message = translation_system.get(
@@ -109,31 +112,35 @@ def help_command(message):
         'help_message',
         bot_name="العملاق للتحميل",
         channels=channels_text,
-        max_size=TELEGRAM_UPLOAD_LIMIT_MB
+        max_size=Config.TELEGRAM_UPLOAD_LIMIT_MB
     )
-    if uid != ADMIN_ID:
+    if uid != Config.ADMIN_ID:
         help_message = "\n".join(
             line for line in help_message.splitlines()
             if '/boss' not in line and '/admin' not in line
         )
     
-    # أزرار الروابط (القنوات في سطر واحد والمطور في سطر منفصل)
-    markup = types.InlineKeyboardMarkup()
+    # أزرار الروابط (توزيع تلقائي: زرين في كل صف)
+    markup = types.InlineKeyboardMarkup(row_width=2)
     
     channel_btns = []
-    for ch in CHANNELS:
+    for ch in Config.CHANNELS:
         clean_ch = ch.strip().replace("@", "")
         channel_btns.append(types.InlineKeyboardButton(f"🔗 {ch}", url=f"https://t.me/{clean_ch}"))
     
+    # إضافة أزرار القنوات في صفوف من زرين
     if channel_btns:
-        markup.row(*channel_btns)
-        
+        # تقسيم القائمة إلى مجموعات من 2
+        for i in range(0, len(channel_btns), 2):
+            markup.row(*channel_btns[i:i+2])
+            
     dev_text = translation_system.get(uid, 'contact_dev')
     markup.row(types.InlineKeyboardButton(dev_text, url="https://t.me/abulharith_imad"))
         
     bot.send_message(message.chat.id, f"{help_title}\n\n{help_message}", parse_mode="HTML", reply_markup=markup)
 
 @bot.message_handler(commands=['language', 'lang', 'اللغة'])
+@bot.message_handler(func=lambda m: m.text in ["🌍 تغيير اللغة", "🌍 Change Language", "🌍 Changer Langue", "تغيير اللغة"])
 def language_command(message):
     uid = message.from_user.id
     add_user(uid, message.from_user.username, message.from_user.first_name)
@@ -148,19 +155,6 @@ def language_command(message):
     )
     
     bot.send_message(message.chat.id, select_text, parse_mode="HTML", reply_markup=markup)
-
-# Button Handlers
-@bot.message_handler(func=lambda m: m.text in ["📢 مشاركة البوت", "📢 Share Bot", "📢 Partager le bot", "مشاركة البوت"])
-def start_download_button(message):
-    start_command(message)
-
-@bot.message_handler(func=lambda m: m.text in ["🆘 المساعدة", "🆘 Help", "🆘 Aide", "مساعدة"])
-def help_button(message):
-    help_command(message)
-
-@bot.message_handler(func=lambda m: m.text in ["🌍 تغيير اللغة", "🌍 Change Language", "🌍 Changer Langue", "تغيير اللغة"])
-def language_button(message):
-    language_command(message)
 
 @bot.message_handler(commands=['contact', 'المطور'])
 @bot.message_handler(func=lambda m: m.text in ["👨‍💻 المطور", "👨‍💻 Developer", "👨‍💻 Développeur", "راسل المطور"])
@@ -198,7 +192,7 @@ def bots_list_command(message):
 @bot.message_handler(func=lambda m: m.text in ["📊 إحصائياتي", "📊 My Stats", "📊 Mes Stats", "إحصائياتي"])
 def stats_command(message):
     uid = message.from_user.id
-    from titan_bot.core.database import get_user_details, get_user_rank, get_total_users_count
+    from src.core.database import get_user_details, get_user_rank, get_total_users_count
     
     user_info = get_user_details(uid)
     if not user_info:
@@ -225,3 +219,4 @@ def stats_command(message):
     markup.add(types.InlineKeyboardButton(main_menu_text, callback_data="menu_back_to_main"))
     
     bot.send_message(message.chat.id, stats_text, parse_mode="HTML", reply_markup=markup)
+
