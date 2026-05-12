@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 from html import escape
 from telebot import types
 import telebot
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.core.config import Config
 from src.core.loader import bot, BotState
@@ -148,9 +148,9 @@ def _build_file_too_large_message(uid, size_mb=0):
             uid,
             'file_too_large',
             size=size_mb,
-            limit_mb=TELEGRAM_UPLOAD_LIMIT_MB,
+            limit_mb=Config.TELEGRAM_UPLOAD_LIMIT_MB,
         )
-    return translation_system.get(uid, 'file_too_large_unknown', limit_mb=TELEGRAM_UPLOAD_LIMIT_MB)
+    return translation_system.get(uid, 'file_too_large_unknown', limit_mb=Config.TELEGRAM_UPLOAD_LIMIT_MB)
 
 
 def _exceeds_telegram_upload_limit(size_bytes):
@@ -849,7 +849,7 @@ IMAGE_EXTS = {"jpg", "jpeg", "png", "webp", "gif"}
 def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookies_file=None):
     # إعدادات أساسية
     ydl_opts = {
-        'outtmpl': output_path,
+        'outtmpl': str(output_path),
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
@@ -857,17 +857,18 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         'ignoreerrors': False,
         'socket_timeout': 30,
         'source_address': '0.0.0.0',
-        'max_filesize': MAX_FILE_SIZE,
+        'max_filesize': Config.MAX_FILE_SIZE,
         'merge_output_format': 'mp4',
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
+            'Sec-Fetch-Mode': 'navigate',
         }
     }
 
     if cookies_file:
-        ydl_opts['cookiefile'] = cookies_file
+        ydl_opts['cookiefile'] = str(cookies_file)
 
     platform = detect_platform_from_url(url)
     ffmpeg_available = check_ffmpeg_available()
@@ -909,14 +910,15 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
             'noplaylist': True
         })
     elif platform == 'facebook':
+        # Facebook often needs simpler format strings to avoid 'Cannot parse data'
         if quality_type == 'high':
-            ydl_opts['format'] = default_video_format
+            ydl_opts['format'] = 'bestvideo+bestaudio/best'
         elif quality_type == 'medium':
-            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+            ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
         elif quality_type == 'low':
-            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360]/best'
         else:
-            ydl_opts['format'] = 'worstvideo+bestaudio/worst'
+            ydl_opts['format'] = 'best'
     elif platform == 'youtube':
         if 'shorts' in url.lower():
             # Shorts often have issues with complex format selectors
@@ -983,7 +985,7 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
     raise Exception("Youtube download failed after retries")
 
 def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
-    """تحميل محسن مع fallback"""
+    """تحميل محسن مع fallback ومحاولة بدون كوكيز عند الفشل"""
     for i in range(max_retries):
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -991,6 +993,12 @@ def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
                 return info
         except Exception as e:
             logger.warning(f"Download Try {i+1} failed: {e}")
+            
+            # في المحاولة الثانية، نحاول حذف الكوكيز وتغيير التنسيق قليلاً
+            if i == 0 and 'cookiefile' in ydl_opts:
+                logger.info("Retrying without cookies...")
+                del ydl_opts['cookiefile']
+            
             time.sleep(2)
             if i == max_retries - 1:
                 raise e
@@ -1120,26 +1128,26 @@ def process_download(message, quality_type, url=None):
     
     try:
         sid = sanitize_filename(generate_sid())
-        platform = detect_platform_from_url(url or message.text)
-        source_url = url or message.text
-        download_url = url or message.text
+        source_url = url if url else message.text
+        download_url = source_url
+        platform = detect_platform_from_url(source_url)
         video_title = ""
         file_size_mb = 0
         if platform == 'tiktok':
-            source_url, download_url = prepare_tiktok_urls(message.text)
-            if source_url != message.text:
+            source_url, download_url = prepare_tiktok_urls(source_url)
+            if source_url != (url if url else message.text):
                 logger.info(f"Expanded TikTok URL: {source_url}")
             if download_url != source_url:
                 logger.info(f"Fallback TikTok URL: {download_url}")
             if '/photo/' in source_url:
                 _handle_photo_not_supported(message, uid, platform, sid)
                 return
-        if platform not in ALLOWED_PLATFORMS:
+        if platform not in Config.ALLOWED_PLATFORMS:
             if platform == 'other':
                 msg = translation_system.get(uid, 'invalid_link')
                 error_reason = "invalid_link"
             else:
-                platforms_text = ", ".join([p.title() for p in ALLOWED_PLATFORMS])
+                platforms_text = ", ".join([p.title() for p in Config.ALLOWED_PLATFORMS])
                 msg = translation_system.get(uid, 'unsupported_platform', platforms=platforms_text)
                 error_reason = "unsupported_platform"
 
@@ -1162,10 +1170,11 @@ def process_download(message, quality_type, url=None):
 
         download_started_text = translation_system.get(uid, 'download_started')
         cancel_event, progress_msg, progress_markup = _start_progress(uid, message, sid, download_started_text)
-        target_dir = Config.ADMIN_DOWNLOADS if uid == Config.ADMIN_ID else Config.USERS_DOWNLOADS
+        target_dir = str(Config.ADMIN_DOWNLOADS if uid == Config.ADMIN_ID else Config.USERS_DOWNLOADS)
         output_template = os.path.join(target_dir, f"video_{sid}.%(ext)s")
         
-        cookies_file = get_cookies_file(source_url)
+        cookies_file = str(get_cookies_file(source_url) or "")
+        if not cookies_file: cookies_file = None
         
         download_progress_hook = _build_progress_hook(cancel_event, progress_msg, message.chat.id, download_started_text, progress_markup)
         

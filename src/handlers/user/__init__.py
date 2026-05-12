@@ -32,7 +32,6 @@ def create_main_markup(user_id, is_admin=False):
     
     start_btn = translation_system.get(user_id, 'main_menu_buttons', key='start_download')
     help_btn = translation_system.get(user_id, 'main_menu_buttons', key='help')
-    lang_btn = translation_system.get(user_id, 'main_menu_buttons', key='language')
     contact_btn = translation_system.get(user_id, 'main_menu_buttons', key='contact')
     bots_list_btn = translation_system.get(user_id, 'main_menu_buttons', key='bots_list')
     stats_btn = translation_system.get(user_id, 'main_menu_buttons', key='user_stats')
@@ -40,16 +39,16 @@ def create_main_markup(user_id, is_admin=False):
     bot_username = BotState.username or "bot"
     share_msg = translation_system.get(user_id, 'share_message', bot_username=bot_username)
     share_url = f"https://t.me/share/url?url=https://t.me/{bot_username}&text={quote(share_msg)}"
+
     markup.row(
         types.InlineKeyboardButton(start_btn, url=share_url),
-        types.InlineKeyboardButton(lang_btn, callback_data="menu_language")
-    )
-    markup.row(
-        types.InlineKeyboardButton(help_btn, callback_data="menu_help"),
-        types.InlineKeyboardButton(contact_btn, callback_data="menu_contact")
+        types.InlineKeyboardButton(help_btn, callback_data="menu_help")
     )
     markup.row(
         types.InlineKeyboardButton(bots_list_btn, callback_data="menu_bots_list"),
+        types.InlineKeyboardButton(contact_btn, callback_data="menu_contact")
+    )
+    markup.row(
         types.InlineKeyboardButton(stats_btn, callback_data="menu_user_stats")
     )
     
@@ -139,22 +138,7 @@ def help_command(message):
         
     bot.send_message(message.chat.id, f"{help_title}\n\n{help_message}", parse_mode="HTML", reply_markup=markup)
 
-@bot.message_handler(commands=['language', 'lang', 'اللغة'])
-@bot.message_handler(func=lambda m: m.text in ["🌍 تغيير اللغة", "🌍 Change Language", "🌍 Changer Langue", "تغيير اللغة"])
-def language_command(message):
-    uid = message.from_user.id
-    add_user(uid, message.from_user.username, message.from_user.first_name)
-    
-    select_text = translation_system.get(uid, 'select_language')
-    
-    markup = types.InlineKeyboardMarkup(row_width=3)
-    markup.add(
-        types.InlineKeyboardButton("العربية 🇸🇦", callback_data="lang_ar"),
-        types.InlineKeyboardButton("English 🇺🇸", callback_data="lang_en"),
-        types.InlineKeyboardButton("Français 🇫🇷", callback_data="lang_fr")
-    )
-    
-    bot.send_message(message.chat.id, select_text, parse_mode="HTML", reply_markup=markup)
+
 
 @bot.message_handler(commands=['contact', 'المطور'])
 @bot.message_handler(func=lambda m: m.text in ["👨‍💻 المطور", "👨‍💻 Developer", "👨‍💻 Développeur", "راسل المطور"])

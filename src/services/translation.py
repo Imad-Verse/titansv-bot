@@ -2,9 +2,7 @@ from src.core.database import get_user_language
 
 class TranslationSystem:
     LANGUAGES = {
-        'ar': 'العربية',
-        'en': 'English',
-        'fr': 'Français'
+        'ar': 'العربية'
     }
     
     TRANSLATIONS = {
@@ -61,7 +59,7 @@ class TranslationSystem:
             'main_menu_buttons': {
                 'start_download': '📢 مشاركة البوت',
                 'help': '🆘 المساعدة',
-                'language': '🌍 تغيير اللغة',
+                'language': '🌍 اللغة',
                 'contact': '👨‍💻 المطور',
                 'bots_list': '🤖 قائمة بوتاتنا',
                 'user_stats': '📊 إحصائياتي',
@@ -74,97 +72,71 @@ class TranslationSystem:
             'upload_progress': "⏳ جاري الرفع: {percent}%",
             'download_error': "❌ حدث خطأ أثناء التحميل.",
             'audio_success': "✅ تم تحميل الصوت بنجاح\n{bot_sig}",
-            'mute_success': "✅ تم تحميل الفيديو صامتاً\n{bot_sig}"
-        },
-        'en': {
-            'welcome_title': "🎉 Welcome to {bot_name}",
-            'start_message': """<b>{bot_sig}</b>
+            'mute_success': "✅ تم تحميل الفيديو صامتاً\n{bot_sig}",
+            'video_caption': """🎬 <b>{title}</b>
 
-Send a video link from (YouTube, TikTok, Facebook, Instagram, Pinterest, Twitter).
+{description}
 
-⛔️ Warning: Do not use the bot for forbidden content!""",
-            'maintenance_on': "🛠 <b>Sorry, the bot is currently under maintenance. Please try again later.</b>",
-            'banned_user': "🚫 <b>Sorry, you are banned from using the bot.</b>",
-            'invalid_link': "❌ <b>Could not recognize a valid link.</b>",
-            'unsupported_platform': "❌ <b>This platform is not supported.</b>\nSupported: {platforms}",
-            'force_sub_msg': "<b>⚠️ Sorry, you must subscribe to these channels first:</b>\n\n{channels}",
-            'choose_quality': "🎥 <b>Choose download quality:</b>",
-            'check_sub_btn': "🔄 Check Subscription",
-            'main_menu': "🏠 Main Menu",
-            'unknown_command': "❓ <b>Sorry, I didn't understand that.</b>",
-            'language_set': "✅ Language changed to {language}",
-            'select_language': "🌍 <b>Select your language:</b>",
-            'contact_dev': "👨‍💻 Contact Developer",
-            'bots_list_text': "🤖 <b>Our Bots List:</b>",
-            'user_stats_msg': """📊 <b>Your Stats:</b>
+📱 <b>المنصة:</b> {platform}
+⏱ <b>المدة:</b> {duration}
+💾 <b>الحجم:</b> {size} MB
 
-👤 <b>Name:</b> {name}
-🆔 <b>ID:</b> <code>{uid}</code>
-📅 <b>Joined:</b> {join_date}
-📥 <b>Total Downloads:</b> {download_count}
-🏆 <b>Rank:</b> {rank} / {total_users}""",
-            'main_menu_buttons': {
-                'start_download': '📢 Share Bot',
-                'help': '🆘 Help',
-                'language': '🌍 Change Language',
-                'contact': '👨‍💻 Developer',
-                'bots_list': '🤖 Our Bots',
-                'user_stats': '📊 My Stats',
-                'admin_panel': '🛠 Admin Panel'
-            },
-            'link_expired': "⚠️ Link expired. Send it again.",
-            'download_started': "⏳ Starting download...",
-            'audio_success': "✅ Audio downloaded\n{bot_sig}",
-            'mute_success': "✅ Video muted\n{bot_sig}"
-        },
-        'fr': {
-            'welcome_title': "🎉 Bienvenue sur {bot_name}",
-            'start_message': """<b>{bot_sig}</b>
+{bot_sig}""",
+            'extract_audio': "🎵 استخراج الصوت",
+            'mute_video': "🔇 فيديو بدون صوت",
+            'share_bot': "📢 مشاركة البوت",
+            'cancel_download': "❌ إلغاء التحميل",
+            'download_completed': "✅ اكتمل التحميل، جاري الرفع...",
+            'file_too_large': "⚠️ حجم الملف ({size} MB) يتجاوز الحد المسموح به للرفع ({limit_mb} MB).",
+            'file_too_large_unknown': "⚠️ حجم الملف يتجاوز الحد المسموح به للرفع ({limit_mb} MB).",
+            'weak_connection': "📡 فشل الاتصال، يبدو أن المصدر يواجه ضغطاً أو اتصالك ضعيف.",
+            'temporary_source_issue': "🛠 عذراً، نواجه مشكلة مؤقتة في سحب البيانات من هذا الرابط. حاول لاحقاً.",
+            'video_unavailable': "🚫 هذا الفيديو غير متاح حالياً (قد يكون محذوفاً أو خاصاً).",
+            'private_or_login': "🔒 هذا الفيديو خاص أو يتطلب تسجيل دخول لمشاهدته.",
+            'unsupported_url': "❌ الرابط غير مدعوم أو لا يحتوي على فيديو قابل للتحميل.",
+            'no_video_in_post': "❌ لا يوجد فيديو في هذا المنشور.",
+            'service_blocked': "🚫 الخدمة محجوبة مؤقتاً من قبل المنصة، يرجى المحاولة لاحقاً.",
+            'photo_not_supported': "📸 عذراً، البوت يدعم تحميل الفيديوهات فقط حالياً.",
+            'processing_error': "❌ حدث خطأ أثناء معالجة الفيديو.",
+            'already_processing': "⏳ لديك عملية تحميل جارية بالفعل. يرجى الانتظار.",
+            'server_busy': "🚦 السيرفر مشغول حالياً بمعالجة الكثير من الطلبات. حاول بعد قليل.",
+            'send_link_prompt': "🔗 أرسل رابط الفيديو الآن للتحميل.",
+            'request_processing_failed': "❌ تعذر معالجة طلبك حالياً.",
+            'subscription_incomplete': "⚠️ لم تشترك في كافة القنوات المطلوبة بعد.",
+            'subscription_verified': "✅ تم التحقق من الاشتراك بنجاح!",
+            'subscribed_success': "✅ شكراً لاشتراكك! يمكنك الآن إرسال الروابط والتحميل.",
+            'processing': "⏳ جاري المعالجة...",
+            'operation_failed': "❌ فشلت العملية.",
+            'link_sent': "✅ تم إرسال الرابط.",
+            'link_missing': "❌ الرابط غير موجود.",
+            'no_active_download': "❌ لا يوجد تحميل نشط حالياً للإلغاء.",
+            'share_message': "🚀 جرب هذا البوت الرهيب لتحميل الفيديوهات من كل المنصات مجاناً!",
+            'help_title': "🆘 <b>دليل استخدام العملاق للتحميل</b>",
+            'help_message': """🎬 <b>كيفية التحميل:</b>
+1. انسخ رابط الفيديو من أي منصة مدعومة.
+2. أرسل الرابط مباشرة هنا.
+3. اختر الجودة التي تناسبك.
 
-Envoyez un lien vidéo de (YouTube, TikTok, Facebook, Instagram, Pinterest, Twitter).""",
-            'maintenance_on': "🛠 <b>Désolé, le bot est en maintenance.</b>",
-            'banned_user': "🚫 <b>Désolé, vous êtes banni.</b>",
-            'invalid_link': "❌ <b>Lien invalide.</b>",
-            'unsupported_platform': "❌ <b>Plateforme non supportée.</b>\nSupportées: {platforms}",
-            'force_sub_msg': "<b>⚠️ Désolé, vous devez vous abonner d'abord:</b>\n\n{channels}",
-            'choose_quality': "🎥 <b>Choisissez la qualité:</b>",
-            'check_sub_btn': "🔄 Vérifier l'abonnement",
-            'main_menu': "🏠 Menu Principal",
-            'language_set': "✅ Langue changée en {language}",
-            'select_language': "🌍 <b>Choisissez votre langue:</b>",
-            'contact_dev': "👨‍💻 Développeur",
-            'main_menu_buttons': {
-                'start_download': '📢 Partager',
-                'help': '🆘 Aide',
-                'language': '🌍 Langue',
-                'contact': '👨‍💻 Développeur',
-                'bots_list': '🤖 Nos Bots',
-                'user_stats': '📊 Mes Stats',
-                'admin_panel': '🛠 Admin'
-            },
-            'audio_success': "✅ Audio téléchargé\n{bot_sig}",
-            'mute_success': "✅ Vidéo muette\n{bot_sig}"
+📡 <b>المنصات المدعومة:</b>
+{channels}
+
+⚠️ <b>حدود التحميل:</b>
+• الحد الأقصى لحجم الملف: {max_size} MB
+• المدة القصوى: {max_duration} دقيقة
+
+🛠 <b>الأوامر المتاحة:</b>
+/start - تشغيل البوت
+/help - المساعدة والمنصات
+/stats - إحصائياتك الشخصية"""
         }
     }
 
     def __init__(self):
-        self._user_langs = {} # Cache for user languages
-
-    def get_user_lang(self, user_id):
-        if user_id in self._user_langs:
-            return self._user_langs[user_id]
-        
-        lang = get_user_language(user_id) or 'ar'
-        self._user_langs[user_id] = lang
-        return lang
-
-    def set_language(self, user_id, lang_code):
-        if lang_code in self.LANGUAGES:
-            self._user_langs[user_id] = lang_code
+        pass
 
     def get(self, user_id, translation_key, **kwargs):
-        lang = self.get_user_lang(user_id)
-        data = self.TRANSLATIONS.get(lang, self.TRANSLATIONS['ar'])
+        # Default to Arabic since we removed other languages
+        data = self.TRANSLATIONS['ar']
         text = data.get(translation_key, translation_key)
         
         if isinstance(text, dict) and 'key' in kwargs:
@@ -177,5 +149,11 @@ Envoyez un lien vidéo de (YouTube, TikTok, Facebook, Instagram, Pinterest, Twit
             except:
                 return text
         return text
+
+    def set_language(self, user_id, lang_code):
+        pass
+
+    def get_user_lang(self, user_id):
+        return 'ar'
 
 translation_system = TranslationSystem()

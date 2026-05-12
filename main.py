@@ -33,9 +33,9 @@ def configure_bot_commands():
         commands = [
             types.BotCommand("start", "🚀 بدء استخدام البوت"),
             types.BotCommand("help", "🆘 دليل الاستخدام"),
-            types.BotCommand("language", "🌍 تغيير اللغة"),
             types.BotCommand("contact", "👨‍💻 مراسلة المطور"),
-            types.BotCommand("bots_list", "🤖 قائمة بوتاتنا")
+            types.BotCommand("bots_list", "🤖 قائمة بوتاتنا"),
+            types.BotCommand("stats", "📊 إحصائياتي")
         ]
         
         bot.set_my_commands(commands)

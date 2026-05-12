@@ -38,12 +38,12 @@ class Config:
 
     # --- إعدادات الوسائط والكوكيز ---
     COOKIES_FILES = {
-        'instagram': str(COOKIES_DIR / 'www.instagram.com_cookies.txt'),
-        'facebook': str(COOKIES_DIR / 'www.facebook.com_cookies.txt'),
-        'tiktok': str(COOKIES_DIR / 'www.tiktok.com_cookies.txt'),
-        'twitter': str(COOKIES_DIR / 'x.com_cookies.txt'),
-        'youtube': str(COOKIES_DIR / 'www.youtube.com_cookies.txt'),
-        'threads': str(COOKIES_DIR / 'www.instagram.com_cookies.txt')
+        'instagram': COOKIES_DIR / 'www.instagram.com_cookies.txt',
+        'facebook': COOKIES_DIR / 'www.facebook.com_cookies.txt',
+        'tiktok': COOKIES_DIR / 'www.tiktok.com_cookies.txt',
+        'twitter': COOKIES_DIR / 'x.com_cookies.txt',
+        'youtube': COOKIES_DIR / 'www.youtube.com_cookies.txt',
+        'threads': COOKIES_DIR / 'www.instagram.com_cookies.txt'
     }
 
     COOKIES_MAP = {
@@ -72,7 +72,7 @@ class Config:
     ALLOWED_PLATFORMS = [p.strip().lower() for p in _raw_platforms.split(",") if p.strip()]
 
     # --- المسارات الخارجية ---
-    FFMPEG_PATH = os.getenv('FFMPEG_PATH')
+    FFMPEG_PATH = Path(os.getenv('FFMPEG_PATH')) if os.getenv('FFMPEG_PATH') else None
 
     @classmethod
     def initialize_directories(cls):

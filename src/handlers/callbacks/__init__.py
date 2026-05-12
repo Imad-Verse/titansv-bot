@@ -9,7 +9,7 @@ from src.core.utils import logger
 from src.services.translation import translation_system
 from src.core.database import get_stats, get_url_by_sid
 from src.services.download import process_download, process_local_conversion
-from src.handlers.user import help_command, language_command, contact_button, send_main_menu, bots_list_command
+from src.handlers.user import help_command, contact_button, send_main_menu, bots_list_command
 
 ADMIN_CALLBACKS = {
     'refresh_stats',
@@ -37,22 +37,9 @@ def build_mock_message(call):
 def callback_query(call):
     uid = call.from_user.id
     
-    if call.data.startswith('lang_'):
-        lang_code = call.data.split('_')[1]
-        translation_system.set_language(uid, lang_code)
-        
-        # استخدام الدالة المركزية لتحديث اللغة في قاعدة البيانات
-        from src.core.database import set_user_language
-        set_user_language(uid, lang_code)
-        
-        msg = translation_system.get(uid, 'language_set', language=translation_system.LANGUAGES[lang_code])
-        bot.answer_callback_query(call.id, msg)
-        try: bot.delete_message(call.message.chat.id, call.message.message_id)
-        except: pass
-        send_main_menu(call.message.chat.id, uid, call.from_user.username, call.from_user.first_name)
-        return
 
-    elif call.data == 'menu_start_download':
+
+    if call.data == 'menu_start_download':
         bot.answer_callback_query(call.id, translation_system.get(uid, 'send_link_prompt'))
         return
 
@@ -61,10 +48,7 @@ def callback_query(call):
         help_command(build_mock_message(call))
         return
 
-    elif call.data == 'menu_language':
-        bot.answer_callback_query(call.id)
-        language_command(build_mock_message(call))
-        return
+
 
     elif call.data == 'menu_contact':
         bot.answer_callback_query(call.id)
@@ -161,7 +145,6 @@ def callback_query(call):
     elif call.data.startswith('copy_link'):
         try:
             _, sid = call.data.split('|', 1)
-            from src.core.database import get_url_by_sid
             url = get_url_by_sid(sid)
             
             if url:

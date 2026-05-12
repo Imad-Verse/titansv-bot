@@ -151,6 +151,26 @@ def add_user(user_id, username, full_name):
         logger.error(f"Add user error: {e}")
         return False
 
+def delete_user(user_id):
+    """حذف مستخدم من قاعدة البيانات"""
+    try:
+        with db_session() as conn:
+            conn.execute('DELETE FROM users WHERE user_id=?', (str(user_id),))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Delete user error: {e}")
+        return False
+
+def check_user_exists(user_id):
+    """التحقق من وجود المستخدم"""
+    try:
+        with db_session() as conn:
+            res = conn.execute('SELECT 1 FROM users WHERE user_id=?', (str(user_id),)).fetchone()
+            return res is not None
+    except Exception:
+        return False
+
 def set_user_language(user_id, lang_code):
     """تحديث لغة المستخدم"""
     try:
@@ -220,6 +240,49 @@ def get_stats():
         logger.error(f"Get stats error: {e}")
         return {}
 
+def get_user_details(user_id):
+    """جلب تفاصيل كاملة عن المستخدم"""
+    try:
+        with db_session() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            res = cursor.execute('SELECT * FROM users WHERE user_id=?', (str(user_id),)).fetchone()
+            return dict(res) if res else None
+    except Exception as e:
+        logger.error(f"Get user details error: {e}")
+        return None
+
+def get_top_users(limit=10):
+    """جلب قائمة بأكثر المستخدمين استخداماً للبوت"""
+    try:
+        with db_session() as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute('SELECT * FROM users ORDER BY download_count DESC LIMIT ?', (limit,)).fetchall()
+            return [dict(row) for row in rows]
+    except Exception:
+        return []
+
+def get_detailed_stats():
+    """جلب إحصائيات تفصيلية (أسبوعية واليوم فاشلة)"""
+    try:
+        with db_session() as conn:
+            cursor = conn.cursor()
+            
+            # تحميلات الأسبوع (آخر 7 أيام)
+            week_dl = cursor.execute(
+                "SELECT COUNT(id) FROM download_logs WHERE status='success' AND date >= date('now', '-7 days')"
+            ).fetchone()[0]
+            
+            # فشل اليوم
+            failed_today = cursor.execute(
+                "SELECT COUNT(id) FROM download_logs WHERE status='failed' AND date(date) = date('now', 'localtime')"
+            ).fetchone()[0]
+            
+            return 0, week_dl, failed_today
+    except Exception as e:
+        logger.error(f"Get detailed stats error: {e}")
+        return 0, 0, 0
+
 def log_download(user_id, url, status, size_mb=0, platform='unknown', title='', msg_id='', sid='', error_reason=''):
     """تسجيل عملية تحميل جديدة"""
     try:
@@ -286,6 +349,15 @@ def get_user_languages():
     except Exception:
         return []
 
+def get_user_language(user_id):
+    """جلب لغة مستخدم معين"""
+    try:
+        with db_session() as conn:
+            res = conn.execute('SELECT language FROM users WHERE user_id=?', (str(user_id),)).fetchone()
+            return res[0] if res and res[0] else 'ar'
+    except Exception:
+        return 'ar'
+
 def set_user_pref(user_id, key, value):
     """تحديث إعداد خاص بالمستخدم بأمان"""
     allowed_columns = {'default_quality': 'default_quality'}
@@ -340,6 +412,28 @@ def get_broadcast_messages(broadcast_id):
             return rows
     except Exception:
         return []
+
+def get_total_users_count():
+    """جلب إجمالي عدد المستخدمين"""
+    try:
+        with db_session() as conn:
+            res = conn.execute('SELECT COUNT(user_id) FROM users').fetchone()
+            return res[0] if res else 0
+    except Exception:
+        return 0
+
+def get_user_rank(user_id):
+    """جلب رتبة المستخدم بناءً على عدد التحميلات"""
+    try:
+        with db_session() as conn:
+            # الرتبة هي عدد المستخدمين الذين لديهم تحميلات أكثر + 1
+            res = conn.execute('''
+                SELECT COUNT(*) + 1 FROM users 
+                WHERE download_count > (SELECT download_count FROM users WHERE user_id = ?)
+            ''', (str(user_id),)).fetchone()
+            return res[0] if res else 0
+    except Exception:
+        return 0
 
 def delete_broadcast_messages_db(broadcast_id):
     """حذف سجلات رسائل البث"""
