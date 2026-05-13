@@ -134,11 +134,23 @@ def get_cookies_file(url):
     except Exception:
         host = ""
 
+    # سجل تتبع لمعرفة الرابط الذي يتم فحصه
+    logger.debug(f"Checking cookies for host: {host}")
+
     for domain, platform in Config.COOKIES_MAP.items():
         if host == domain or host.endswith(f".{domain}"):
             cookie_path = Config.COOKIES_FILES.get(platform)
-            if cookie_path and cookie_path.exists() and cookie_path.stat().st_size > 0:
-                return cookie_path
+            
+            # سجل تتبع لمعرفة المسار الذي يبحث فيه البوت
+            if cookie_path:
+                if cookie_path.exists():
+                    if cookie_path.stat().st_size > 0:
+                        return cookie_path
+                    else:
+                        logger.warning(f"Cookie file found but is EMPTY: {cookie_path}")
+                else:
+                    logger.debug(f"Cookie file NOT FOUND at: {cookie_path}")
+            
     return None
 
 def check_disk_space(min_gb=1):
