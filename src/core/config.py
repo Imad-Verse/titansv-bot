@@ -48,12 +48,12 @@ class Config:
 
     # --- إعدادات الوسائط والكوكيز ---
     COOKIES_FILES = {
-        'instagram': COOKIES_DIR / 'www.instagram.com_cookies.txt',
-        'facebook': COOKIES_DIR / 'www.facebook.com_cookies.txt',
-        'tiktok': COOKIES_DIR / 'www.tiktok.com_cookies.txt',
-        'twitter': COOKIES_DIR / 'x.com_cookies.txt',
-        'youtube': COOKIES_DIR / 'www.youtube.com_cookies.txt',
-        'threads': COOKIES_DIR / 'www.instagram.com_cookies.txt'
+        'instagram': COOKIES_DIR / 'instagram.com_cookies.txt',
+        'facebook': COOKIES_DIR / 'facebook.com_cookies.txt',
+        'tiktok': COOKIES_DIR / 'tiktok.com_cookies.txt',
+        'twitter': COOKIES_DIR / 'twitter.com_cookies.txt',
+        'youtube': COOKIES_DIR / 'youtube.com_cookies.txt',
+        'threads': COOKIES_DIR / 'instagram.com_cookies.txt'
     }
 
     COOKIES_MAP = {

@@ -9,7 +9,7 @@ from src.core.config import Config
 from src.utils.helpers import (
     format_seconds, detect_platform_from_url, truncate_text, 
     sanitize_filename, generate_sid, clean_url, format_size,
-    get_media_unique_id, get_cookies_path
+    get_media_unique_id
 )
 
 import logging

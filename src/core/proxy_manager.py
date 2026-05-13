@@ -33,7 +33,11 @@ class ProxyManager:
                 return
             
             # تصفية السطور الفارغة والتعليقات
-            raw_proxies = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            if Config.PROXIES_FILE.exists():
+                with open(Config.PROXIES_FILE, 'r', encoding='utf-8') as f:
+                    raw_proxies = [line.strip() for line in f if line.strip() and not line.startswith('#')]
+            else:
+                raw_proxies = []
             
             self.proxies = []
             for p in raw_proxies:

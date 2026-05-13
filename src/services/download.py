@@ -934,7 +934,16 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         ydl_opts['noplaylist'] = False # السماح بتحميل الألبومات
         
     if platform == 'instagram':
-        ydl_opts['extractor_args'] = {'instagram': {'api_request': 'ios'}}
+        ydl_opts['extractor_args'] = {
+            'instagram': {
+                'api_request': 'ios',
+                'include_reels': True,
+                'include_stories': True
+            }
+        }
+        # Instagram works better with a desktop-like user agent sometimes, but yt-dlp defaults are usually okay.
+        # Adding a common user agent to be safe.
+        ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
 
     # معالجة الجودات الرقمية (Dynamic Quality)
     if str(quality_type).isdigit():
@@ -985,8 +994,12 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         else:
             ydl_opts['format'] = 'best'
     elif platform == 'youtube':
+        # YouTube specific optimizations
+        ydl_opts['referer'] = 'https://www.youtube.com/'
+        
         if 'shorts' in url.lower():
-            ydl_opts['format'] = 'best'
+            # For Shorts, we try to get the best combined format first
+            ydl_opts['format'] = 'bestvideo+bestaudio/best'
         elif quality_type == 'high':
              ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
@@ -1022,37 +1035,38 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
     
     for i in range(max_retries):
         try:
-            # تحديث البروكسي في كل محاولة (الأولى قد تكون بالبروكسي الحالي أو بدونه)
+            # تدوير البروكسي في كل محاولة (الأولى قد تكون بالبروكسي الحالي أو بدونه)
             if i > 0:
                 new_proxy = proxy_manager.get_proxy()
                 if new_proxy:
-                    logger.info(f"🔄 Retrying YouTube with new proxy: {new_proxy}")
+                    logger.info(f"🔄 YouTube Retry {i+1} with new proxy: {new_proxy}")
                     ydl_opts['proxy'] = new_proxy
+
+            # محاولات مع استراتيجيات مختلفة
+            if i == 1:
+                # المحاولة الثانية: تغيير الصيغة إلى صيغة مدمجة أكثر استقراراً
+                logger.info("YouTube Retry 2: Trying stable 'best' format")
+                ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+            elif i == 2:
+                # المحاولة الثالثة: الخيار النووي - بدون كوكيز وبأقل جودة (أحياناً الكوكيز المحظورة تسبب مشكلة)
+                logger.info("YouTube Retry 3: Clearing cookies as last resort")
+                if 'cookiefile' in ydl_opts:
+                    del ydl_opts['cookiefile']
+                ydl_opts['format'] = 'best'
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return info
         except Exception as e:
+            er_msg = str(e).lower()
             logger.warning(f"YouTube Try {i+1} failed: {e}")
-            time.sleep(i * 2 + 1)
             
-            # استراتيجية التراجع في الجودة (Nuclear Option)
-            if i == 0:
-                # المحاولة الثانية: حذف الفلاتر، الكوكيز، واستخدام best مع ضمان وجود الصوت
-                logger.info("Falling back to 'best' format, clearing filters and cookies")
-                ydl_opts['format'] = 'best[vcodec!=none][acodec!=none]/best'
-                ydl_opts['match_filter'] = None
-                if 'cookiefile' in ydl_opts:
-                    del ydl_opts['cookiefile']
-            elif i == max_retries - 2:
-                # المحاولة قبل الأخيرة: حذف الفلاتر، الكوكيز، واستخدام worst
-                logger.info("Falling back to 'worst' format, clearing filters and cookies")
-                ydl_opts['format'] = 'worst[vcodec!=none][acodec!=none]/worst'
-                ydl_opts['match_filter'] = None
-                if 'cookiefile' in ydl_opts:
-                    del ydl_opts['cookiefile']
-            elif i == max_retries - 1:
-                # المحاولة الأخيرة: فشل نهائي
+            if "sign in to confirm" in er_msg or "confirm you're not a bot" in er_msg:
+                logger.error("🛑 YouTube bot detection triggered! Cookies might be expired or blocked.")
+            
+            if i < max_retries - 1:
+                time.sleep(i * 3 + 2)
+            else:
                 raise e
     raise Exception("Youtube download failed after retries")
 
