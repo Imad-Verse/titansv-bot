@@ -917,9 +917,6 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         else:
             ydl_opts['format'] = 'best'
     elif platform == 'youtube':
-        # استخدام مشغل الأندرويد والويب معاً لتجاوز الحجب
-        ydl_opts['extractor_args'] = {'youtube': {'player_client': ['android', 'web']}}
-        
         if 'shorts' in url.lower():
             ydl_opts['format'] = 'best'
         elif quality_type == 'high':
