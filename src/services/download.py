@@ -753,8 +753,21 @@ def find_downloaded_file(target_dir, sid, preferred_ext=None, prefix="video"):
     pattern = os.path.join(target_dir, f"{prefix}_{sid}.*")
     candidates = glob.glob(pattern)
     if not candidates:
-        return None
+        # Also check for playlist files (video_sid_001.ext)
+        pattern_multi = os.path.join(target_dir, f"{prefix}_{sid}_*.*")
+        candidates = glob.glob(pattern_multi)
+        if not candidates:
+            return None
     return max(candidates, key=lambda p: os.path.getmtime(p))
+
+def find_all_downloaded_files(target_dir, sid, prefix="video"):
+    """البحث عن جميع الملفات المحملة التابعة لنفس الجلسة (للألبومات)"""
+    pattern_single = os.path.join(target_dir, f"{prefix}_{sid}.*")
+    pattern_multi = os.path.join(target_dir, f"{prefix}_{sid}_*.*")
+    candidates = glob.glob(pattern_single) + glob.glob(pattern_multi)
+    # Filter out temp files
+    candidates = [c for c in candidates if not c.endswith('.part') and not c.endswith('.ytdl')]
+    return sorted(list(set(candidates)))
 
 def mute_video_file(input_path):
     base, ext = os.path.splitext(input_path)
@@ -865,6 +878,9 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
 
     # Apply shared defaults
     ydl_opts['noplaylist'] = True
+    if platform in ['instagram', 'tiktok']:
+        ydl_opts['noplaylist'] = False # السماح بتحميل الألبومات
+        
     if platform == 'instagram':
         ydl_opts['extractor_args'] = {'instagram': {'api_request': 'ios'}}
 
@@ -895,10 +911,7 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         # But if ffmpeg is available, we can try to get higher quality if it exists
         ydl_opts['format'] = default_video_format if ffmpeg_available else 'best'
     elif platform == 'tiktok':
-        ydl_opts.update({
-            'format': 'best', # TikTok usually serves single files with audio
-            'noplaylist': True
-        })
+        ydl_opts['noplaylist'] = False
     elif platform == 'facebook':
         # Facebook often needs simpler format strings to avoid 'Cannot parse data'
         if quality_type == 'high':
@@ -1159,9 +1172,6 @@ def process_download(message, quality_type, url=None):
         if platform == 'tiktok':
             if download_url != source_url:
                 logger.info(f"Fallback TikTok URL: {download_url}")
-            if '/photo/' in source_url:
-                _handle_photo_not_supported(message, uid, platform, sid)
-                return
         if platform not in Config.ALLOWED_PLATFORMS:
             if platform == 'other':
                 msg = translation_system.get(uid, 'invalid_link')
@@ -1191,7 +1201,12 @@ def process_download(message, quality_type, url=None):
         download_started_text = translation_system.get(uid, 'download_started')
         cancel_event, progress_msg, progress_markup = _start_progress(uid, message, sid, download_started_text)
         target_dir = str(Config.ADMIN_DOWNLOADS if uid == Config.ADMIN_ID else Config.USERS_DOWNLOADS)
-        output_template = os.path.join(target_dir, f"video_{sid}.%(ext)s")
+        
+        if platform in ['instagram', 'tiktok']:
+            output_template = os.path.join(target_dir, f"video_{sid}_%(autonumber)03d.%(ext)s")
+        else:
+            output_template = os.path.join(target_dir, f"video_{sid}.%(ext)s")
+
         
         cookies_file = str(get_cookies_file(source_url) or "")
         if not cookies_file: cookies_file = None
@@ -1254,21 +1269,58 @@ def process_download(message, quality_type, url=None):
             else:
                 info = enhanced_download_with_fallback(ydl_opts, download_url, max_retries=3)
         
-            file_path = find_downloaded_file(
-                target_dir,
-                sid,
-                preferred_ext='mp3' if quality_type == 'audio' else None
-            )
+            downloaded_files = find_all_downloaded_files(target_dir, sid)
+            
+            if not downloaded_files:
+                raise Exception("No files downloaded")
+                
+            # إذا كان هناك أكثر من ملف (ألبوم/منشور متعدد)
+            if len(downloaded_files) > 1:
+                video_title, video_description = _extract_title_and_description(info, platform)
+                duration = format_seconds(info.get('duration', 0))
+                total_size_bytes = sum(os.path.getsize(f) for f in downloaded_files)
+                total_size_mb = total_size_bytes / (1024 * 1024)
+                
+                if total_size_bytes > Config.MAX_FILE_SIZE:
+                    bot.edit_message_text(
+                        _build_file_too_large_message(uid, total_size_mb),
+                        message.chat.id, progress_msg.message_id, parse_mode="HTML", reply_markup=get_error_markup(uid)
+                    )
+                    for f in downloaded_files: delayed_delete(f)
+                    return
+                
+                caption = _build_video_caption(uid, video_title, video_description, platform, duration, f"{total_size_mb:.2f}", Config.BOT_SIG)
+                
+                update_progress_message(progress_msg.message_id, message.chat.id, translation_system.get(uid, 'upload_started'), 0)
+                
+                media_group = []
+                for i, file_path in enumerate(downloaded_files):
+                    ext = os.path.splitext(file_path)[1].lower().lstrip('.')
+                    is_photo = ext in IMAGE_EXTS
+                    
+                    if is_photo:
+                        media = types.InputMediaPhoto(open(file_path, 'rb'), caption=caption if i==0 else None, parse_mode="HTML")
+                    else:
+                        media = types.InputMediaVideo(open(file_path, 'rb'), caption=caption if i==0 else None, parse_mode="HTML", supports_streaming=True)
+                    media_group.append(media)
+                
+                # تقسيم الألبوم إلى مجموعات من 10 (الحد الأقصى لتيليجرام)
+                for i in range(0, len(media_group), 10):
+                    chunk = media_group[i:i+10]
+                    bot.send_media_group(message.chat.id, chunk, timeout=500)
+                    time.sleep(1)
+                    
+                log_download(uid, source_url, "success", size_mb=total_size_mb, platform=platform, title=video_title, sid=sid)
+                update_download_stats()
+                
+                for f in downloaded_files: delayed_delete(f)
+                _delete_progress_message(message, progress_msg)
+                return
+            
+            # معالجة الملف الفردي
+            file_path = downloaded_files[0]
             if file_path and os.path.exists(file_path):
                 ext = os.path.splitext(file_path)[1].lower().lstrip('.')
-                if platform in ['tiktok', 'instagram'] and ext in IMAGE_EXTS:
-                    try:
-                        os.remove(file_path)
-                    except:
-                        pass
-                    _delete_progress_message(message, progress_msg)
-                    _handle_photo_not_supported(message, uid, platform, sid)
-                    return
                 if file_path and os.path.exists(file_path):
                     file_size_bytes = os.path.getsize(file_path)
                 else:
@@ -1276,6 +1328,7 @@ def process_download(message, quality_type, url=None):
                 file_size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes else 0
 
                 video_title, video_description = _extract_title_and_description(info, platform)
+
                 if file_size_bytes > Config.MAX_FILE_SIZE:
                     file_too_large_text = _build_file_too_large_message(uid, file_size_mb)
                     bot.edit_message_text(
@@ -1329,7 +1382,20 @@ def process_download(message, quality_type, url=None):
                         if not thumb_path:
                             thumb_path = download_thumbnail(info.get('thumbnail'), target_dir, sid)
 
-                    if quality_type == 'audio':
+                    if ext in IMAGE_EXTS:
+                        with open(file_path, 'rb') as f:
+                            sent_msg = bot.send_photo(
+                                message.chat.id, f,
+                                caption=caption,
+                                parse_mode="HTML"
+                            )
+                            if sent_msg and sent_msg.photo:
+                                save_to_cache(
+                                    source_url, quality_type, sent_msg.photo[-1].file_id,
+                                    title=video_title, platform=platform, size_mb=file_size_mb,
+                                    duration=duration
+                                )
+                    elif quality_type == 'audio':
                         with open(file_path, 'rb') as a:
                             sent_msg = bot.send_audio(
                                 message.chat.id, a,
@@ -1861,3 +1927,58 @@ def perform_specific_broadcast(message, target_user_id):
     except Exception as e:
         logger.error(f"Specific Broadcast Error: {e}")
         bot.reply_to(message, "❌ تعذر تجهيز رسالة الإذاعة لهذا المستخدم.")
+
+def process_playlist(message, sid):
+    """استخراج عناصر قائمة التشغيل وإضافتها إلى طابور التحميل بشكل منفصل"""
+    from src.core.loader import download_queue, bot
+    uid = message.from_user.id
+    url = get_url_by_sid(sid)
+    if not url:
+        bot.send_message(message.chat.id, translation_system.get(uid, 'invalid_link'))
+        return
+
+    # إعلام المستخدم ببدء المعالجة
+    msg = bot.send_message(message.chat.id, "🔄 جاري جلب بيانات القائمة، يرجى الانتظار...", parse_mode="HTML")
+    
+    # استخدام yt-dlp لاستخراج القائمة بدون تحميل
+    ydl_opts = {
+        'quiet': True,
+        'extract_flat': True,
+        'no_warnings': True,
+        'nocheckcertificate': True
+    }
+    
+    try:
+        import yt_dlp
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+        if 'entries' not in info:
+            bot.edit_message_text("❌ لم يتم العثور على قائمة تشغيل في هذا الرابط.", message.chat.id, msg.message_id)
+            return
+            
+        entries = list(info['entries'])
+        valid_entries = [e for e in entries if e.get('url') or e.get('id')]
+        
+        if not valid_entries:
+            bot.edit_message_text("❌ القائمة فارغة أو غير متاحة.", message.chat.id, msg.message_id)
+            return
+            
+        bot.edit_message_text(f"✅ تم العثور على <b>{len(valid_entries)}</b> فيديو في القائمة.\n⏳ جاري إضافتها إلى طابور التحميل الخاص بك...", message.chat.id, msg.message_id, parse_mode="HTML")
+        
+        added_count = 0
+        for entry in valid_entries:
+            video_url = entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}"
+            
+            # محاكاة رسالة جديدة لكل فيديو
+            dummy_message = type('DummyMessage', (), {'chat': message.chat, 'from_user': message.from_user, 'message_id': message.message_id, 'text': video_url})()
+            
+            # إرسال للطابور بجودة افتراضية
+            download_queue.submit(uid, message.chat.id, message.message_id, process_download, dummy_message, 'high', url=video_url)
+            added_count += 1
+            
+        bot.send_message(message.chat.id, f"🎉 تم إضافة <b>{added_count}</b> فيديو بنجاح إلى طابور التحميل.\nسيتم إرسالها لك تباعاً.", parse_mode="HTML")
+        
+    except Exception as e:
+        logger.error(f"Playlist Error: {e}")
+        bot.edit_message_text(translation_system.get(uid, 'request_processing_failed'), message.chat.id, msg.message_id)

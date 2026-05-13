@@ -66,6 +66,11 @@ def handle_urls(message):
             types.InlineKeyboardButton("🎵 تحميل صوت فقط", callback_data=f"audio_{sid}")
         )
         
+        if platform == 'youtube' and ('list=' in url or 'playlist' in url):
+            markup.row(
+                types.InlineKeyboardButton("📂 تحميل القائمة كاملة", callback_data=f"playlist_{sid}")
+            )
+        
         bot.reply_to(
             message, 
             translation_system.get(uid, 'choose_quality'), 
