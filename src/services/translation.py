@@ -67,6 +67,7 @@ class TranslationSystem:
             },
             'link_expired': "⚠️ انتهت صلاحية هذا الرابط. أرسل الرابط مرة أخرى.",
             'choose_quality_btn': "🎥 اختر الجودة",
+            'extracting_info': "🔍 <b>جاري فحص الرابط واستخراج الجودات المتاحة...</b>",
             'download_started': "⏳ جاري بدء التحميل...",
             'download_progress': "⏳ جاري التحميل: {percent}%",
             'upload_progress': "⏳ جاري الرفع: {percent}%",

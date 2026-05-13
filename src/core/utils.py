@@ -8,10 +8,15 @@ from src.core.config import Config
 # استيراد الدوال المساعدة العامة
 from src.utils.helpers import (
     format_seconds, detect_platform_from_url, truncate_text, 
-    sanitize_filename, generate_sid, clean_url, format_size
+    sanitize_filename, generate_sid, clean_url, format_size,
+    get_media_unique_id, get_cookies_path
 )
 
 import logging
+from datetime import datetime
+from rich.console import Console
+from rich.theme import Theme
+from src.core.config import Config
 from datetime import datetime
 from rich.console import Console
 from rich.theme import Theme
@@ -125,6 +130,13 @@ def delayed_delete(file_path, delay=5):
             logger.error(f"Error deleting {file_path}: {e}")
     
     threading.Thread(target=_delete, daemon=True).start()
+
+def get_cookies_path(platform):
+    """جلب مسار ملف الكوكيز بناءً على اسم المنصة"""
+    path = Config.COOKIES_FILES.get(platform)
+    if path and path.exists():
+        return str(path)
+    return None
 
 def get_cookies_file(url):
     """تحديد ملف الكوكيز المناسب للرابط المعطى"""

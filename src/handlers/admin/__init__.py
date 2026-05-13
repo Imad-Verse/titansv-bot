@@ -4,7 +4,8 @@ import time
 from src.core.config import Config
 from src.core.loader import bot, BotState
 from src.services.translation import translation_system
-from src.core.database import get_stats, ban_unban, get_top_users, auto_backup_database, get_detailed_stats
+from src.core.database import get_stats, ban_unban, get_top_users, get_detailed_stats
+from src.core.backup_service import BackupService
 
 # استيراد وحدة الإذاعة لتفعيل معالجاتها
 import src.handlers.admin.broadcast
@@ -133,8 +134,9 @@ def admin_actions(call):
         bot.register_next_step_handler(msg, perform_ban_unban_step)
 
     elif call.data == 'backup_db':
-        auto_backup_database()
-        bot.answer_callback_query(call.id, "✅ تم إنشاء النسخة الاحتياطية", show_alert=True)
+        bot.answer_callback_query(call.id, "⏳ جاري بدء النسخ الاحتياطي وإرساله...", show_alert=False)
+        BackupService.run_backup_task()
+        bot.send_message(call.message.chat.id, "🚀 <b>جاري تنفيذ عملية النسخ الاحتياطي في الخلفية...</b>\nستصلك النسخة فور اكتمالها.", parse_mode="HTML")
 
     elif call.data == 'check_cookies':
         text = "🍪 <b>حالة ملفات الكوكيز:</b>\n\n"
@@ -185,6 +187,13 @@ def perform_ban_unban_step(message):
         bot.send_message(message.chat.id, "❌ حدث خطأ أثناء محاولة تعديل حالة المستخدم. تأكد أن المستخدم موجود في قاعدة البيانات.")
         
     send_admin_panel(message.chat.id)
+
+@bot.message_handler(commands=['backup'])
+def admin_backup_command(message):
+    if message.from_user.id != Config.ADMIN_ID: 
+        return
+    bot.send_message(message.chat.id, "⏳ <b>بدأت عملية النسخ الاحتياطي...</b>", parse_mode="HTML")
+    BackupService.run_backup_task()
 
 @bot.message_handler(func=lambda m: m.text in ["🛠 لوحة التحكم", "🛠 Control Panel", "🛠 Panneau de Contrôle"])
 def admin_panel_button(message):

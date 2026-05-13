@@ -7,7 +7,8 @@ from src.services.translation import translation_system
 from src.services.download import process_download
 from src.handlers.user import check_sub
 from src.core.database import add_user, is_banned, log_download
-from src.core.utils import generate_sid, detect_platform_from_url
+from src.core.utils import generate_sid, detect_platform_from_url, logger
+import threading
 
 # ريجكس للتحقق من الروابط
 URL_PATTERN = re.compile(r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+')
@@ -56,27 +57,79 @@ def handle_urls(message):
         sid = generate_sid("s")
         log_download(uid, url, "pending", platform=platform, sid=sid)
         
-        markup = types.InlineKeyboardMarkup()
-        markup.row(
-            types.InlineKeyboardButton("🎬 جودة عالية 720+", callback_data=f"dl_high|{sid}"),
-            types.InlineKeyboardButton("🎥 جودة متوسطة 480", callback_data=f"dl_medium|{sid}")
-        )
-        markup.row(
-            types.InlineKeyboardButton("📱 جودة منخفضة 360", callback_data=f"dl_low|{sid}"),
-            types.InlineKeyboardButton("🎵 تحميل صوت فقط", callback_data=f"audio_{sid}")
-        )
-        
-        if platform == 'youtube' and ('list=' in url or 'playlist' in url):
-            markup.row(
-                types.InlineKeyboardButton("📂 تحميل القائمة كاملة", callback_data=f"playlist_{sid}")
-            )
-        
-        bot.reply_to(
+        # رسالة جاري المعالجة
+        processing_msg = bot.reply_to(
             message, 
-            translation_system.get(uid, 'choose_quality'), 
-            reply_markup=markup, 
+            translation_system.get(uid, 'extracting_info', default="🔍 جاري فحص الرابط واستخراج الجودات المتاحة..."),
             parse_mode="HTML"
         )
+        
+        def async_extract_and_show_keyboard(u, p_msg, s, pform):
+            from src.services.download import extract_media_info
+            from src.core.utils import get_cookies_path
+            
+            info = extract_media_info(u, cookies_file=get_cookies_path(pform))
+            
+            markup = types.InlineKeyboardMarkup()
+            
+            if not info:
+                # إذا فشل الاستخراج، نستخدم الأزرار الافتراضية كخطة بديلة
+                markup.row(
+                    types.InlineKeyboardButton("🎬 جودة عالية 720+", callback_data=f"dl_high|{s}"),
+                    types.InlineKeyboardButton("🎥 جودة متوسطة 480", callback_data=f"dl_medium|{s}")
+                )
+                markup.row(
+                    types.InlineKeyboardButton("📱 جودة منخفضة 360", callback_data=f"dl_low|{s}"),
+                    types.InlineKeyboardButton("🎵 تحميل صوت فقط", callback_data=f"audio_{s}")
+                )
+            else:
+                # بناء أزرار الجودات المتاحة ديناميكياً
+                resolutions = info.get('resolutions', [])
+                if resolutions:
+                    # تقسيم الجودات لصفوف (كل صف جودتين)
+                    for i in range(0, len(resolutions), 2):
+                        row = []
+                        for res in resolutions[i:i+2]:
+                            label = f"🎥 {res}p"
+                            if res >= 1080: label = f"🌟 {res}p (FHD+)"
+                            elif res >= 720: label = f"🎬 {res}p (HD)"
+                            
+                            row.append(types.InlineKeyboardButton(label, callback_data=f"dl_{res}|{s}"))
+                        markup.row(*row)
+                else:
+                    # إذا لم توجد جودات محددة (مثل Instagram أحياناً)
+                    markup.row(
+                        types.InlineKeyboardButton("🎬 أفضل جودة متاحة", callback_data=f"dl_high|{s}"),
+                        types.InlineKeyboardButton("🎥 جودة متوسطة", callback_data=f"dl_medium|{s}")
+                    )
+                
+                # إضافة خيار الصوت
+                markup.row(types.InlineKeyboardButton("🎵 تحميل صوت فقط (MP3)", callback_data=f"audio_{s}"))
+                
+                # إضافة خيار القائمة إذا كانت قائمة
+                if info.get('is_playlist'):
+                    markup.row(types.InlineKeyboardButton("📂 تحميل القائمة كاملة", callback_data=f"playlist_{s}"))
+
+            # تحديث الرسالة بالخيارات الجديدة
+            try:
+                text = translation_system.get(uid, 'choose_quality')
+                if info and info.get('title'):
+                    title = info['title']
+                    if len(title) > 50: title = title[:47] + "..."
+                    text = f"<b>📄 {title}</b>\n\n" + text
+                
+                bot.edit_message_text(
+                    text,
+                    p_msg.chat.id,
+                    p_msg.message_id,
+                    reply_markup=markup,
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Failed to update quality keyboard: {e}")
+
+        # تشغيل الاستخراج في ثريد منفصل لعدم حظر البوت
+        threading.Thread(target=async_extract_and_show_keyboard, args=(url, processing_msg, sid, platform), daemon=True).start()
 
 @bot.message_handler(func=lambda m: True)
 def handle_unknown(message):

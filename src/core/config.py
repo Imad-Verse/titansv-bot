@@ -41,6 +41,11 @@ class Config:
     # --- توقيع البوت ---
     BOT_SIG = "🤖 العملاق للتحميل | @TitanSv_bot"
 
+    # --- نظام البروكسي (Proxy Rotation) ---
+    PROXIES_FILE = DATA_DIR / "proxies.txt"
+    PROXIES_URL = os.getenv('PROXIES_URL', 'https://proxy.webshare.io/api/v2/proxy/list/download/ydcmwgdxikkoncvpkoktvomrxczjgtyaztwtmwqq/-/any/username/direct/-/')
+    USE_PROXIES = os.getenv('USE_PROXIES', 'False').lower() == 'true'
+
     # --- إعدادات الوسائط والكوكيز ---
     COOKIES_FILES = {
         'instagram': COOKIES_DIR / 'www.instagram.com_cookies.txt',

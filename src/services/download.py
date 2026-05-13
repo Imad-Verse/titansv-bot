@@ -41,6 +41,59 @@ from src.core.database import (
 )
 from src.services.translation import translation_system
 
+# --- كلاس تتبع تقدم الرفع (Real Upload Progress Tracker) ---
+class ProgressFileReader:
+    def __init__(self, filename, callback, *args, **kwargs):
+        self.filename = filename
+        self.callback = callback
+        self.args = args
+        self.kwargs = kwargs
+        self.size = os.path.getsize(filename)
+        self.file = open(filename, 'rb')
+        self.read_bytes = 0
+
+    def read(self, size=-1):
+        data = self.file.read(size)
+        self.read_bytes += len(data)
+        if self.callback:
+            percent = int((self.read_bytes / self.size) * 100)
+            self.callback(percent, *self.args, **self.kwargs)
+        return data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+
+    def close(self):
+        self.file.close()
+
+    def __getattr__(self, attr):
+        return getattr(self.file, attr)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        data = self.file.readline()
+        if not data:
+            raise StopIteration
+        self.read_bytes += len(data)
+        if self.callback:
+            percent = int((self.read_bytes / self.size) * 100)
+            self.callback(percent, *self.args, **self.kwargs)
+        return data
+
+    def __len__(self):
+        return self.size
+
+def upload_progress_callback(percent, msg_id, chat_id, text, last_percent_dict):
+    """تحديث شريط التقدم الفعلي أثناء الرفع"""
+    if percent - last_percent_dict['value'] >= 10 or percent >= 100:
+        if update_progress_message(msg_id, chat_id, text, percent):
+            last_percent_dict['value'] = percent
+
 # دالة إنشاء رسالة التقدم
 def create_progress_message(chat_id, text, percent=0, markup=None):
     try:
@@ -867,6 +920,11 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
     if cookies_file:
         ydl_opts['cookiefile'] = str(cookies_file)
 
+    from src.core.proxy_manager import proxy_manager
+    proxy = proxy_manager.get_proxy()
+    if proxy:
+        ydl_opts['proxy'] = proxy
+
     platform = detect_platform_from_url(url)
     ffmpeg_available = check_ffmpeg_available()
 
@@ -877,6 +935,16 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         
     if platform == 'instagram':
         ydl_opts['extractor_args'] = {'instagram': {'api_request': 'ios'}}
+
+    # معالجة الجودات الرقمية (Dynamic Quality)
+    if str(quality_type).isdigit():
+        h = quality_type
+        if ffmpeg_available:
+            # نحاول دمج أفضل فيديو بهذه الجودة مع أفضل صوت، أو نأخذ ملف واحد بهذه الجودة
+            ydl_opts['format'] = f'bestvideo[height<={h}]+bestaudio/best[height<={h}][vcodec!=none][acodec!=none]/best[height<={h}]/best'
+        else:
+            ydl_opts['format'] = f'best[height<={h}]/best'
+        return ydl_opts
 
     if quality_type == 'audio':
         ydl_opts['format'] = 'bestaudio/best'
@@ -948,17 +1016,25 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
     return ydl_opts
 
 def youtube_safe_download(url, ydl_opts, max_retries=3):
-    """تحميل آمن من يوتيوب مع محاولات متعددة واستراتيجية التراجع"""
+    """تحميل آمن من يوتيوب مع محاولات متعددة واستراتيجية التراجع والبروكسي"""
+    from src.core.proxy_manager import proxy_manager
     original_format = ydl_opts.get('format')
     
     for i in range(max_retries):
         try:
+            # تحديث البروكسي في كل محاولة (الأولى قد تكون بالبروكسي الحالي أو بدونه)
+            if i > 0:
+                new_proxy = proxy_manager.get_proxy()
+                if new_proxy:
+                    logger.info(f"🔄 Retrying YouTube with new proxy: {new_proxy}")
+                    ydl_opts['proxy'] = new_proxy
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return info
         except Exception as e:
             logger.warning(f"YouTube Try {i+1} failed: {e}")
-            time.sleep(1)
+            time.sleep(i * 2 + 1)
             
             # استراتيجية التراجع في الجودة (Nuclear Option)
             if i == 0:
@@ -981,16 +1057,31 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
     raise Exception("Youtube download failed after retries")
 
 def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
-    """تحميل محسن مع fallback ومحاولة بدون كوكيز عند الفشل"""
+    """تحميل محسن مع fallback ومحاولة ببروكسي مختلف أو جودة أقل عند الفشل"""
+    from src.core.proxy_manager import proxy_manager
+    original_format = ydl_opts.get('format')
+    
     for i in range(max_retries):
         try:
+            # تدوير البروكسي في المحاولات اللاحقة
+            if i > 0:
+                new_proxy = proxy_manager.get_proxy()
+                if new_proxy:
+                    logger.info(f"🔄 Retrying with new proxy: {new_proxy}")
+                    ydl_opts['proxy'] = new_proxy
+                
+                # في المحاولة الثالثة، نجرب جودة "best" المدمجة (أكثر استقراراً أحياناً في بعض المنصات)
+                if i == 2:
+                    logger.info("Retrying with stable 'best' format fallback")
+                    ydl_opts['format'] = 'best[vcodec!=none][acodec!=none]/best'
+
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return info
         except Exception as e:
             logger.warning(f"Download Try {i+1} failed: {e}")
             
-            # في المحاولة الثانية، نحاول حذف الكوكيز وتغيير التنسيق قليلاً
+            # في المحاولة الثانية، نحاول حذف الكوكيز كخيار إضافي
             if i == 0 and 'cookiefile' in ydl_opts:
                 logger.info("Retrying without cookies...")
                 del ydl_opts['cookiefile']
@@ -1103,6 +1194,64 @@ def send_failure_report(user_id, url, platform, reason, sid="", size_mb=0, title
         logger.error(f"Failure report error: {e}")
         pass
 
+def extract_media_info(url, cookies_file=None):
+    """استخراج معلومات الفيديو والجودات المتوفرة دون تحميل"""
+    from src.core.proxy_manager import proxy_manager
+    proxy = proxy_manager.get_proxy()
+    
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'nocheckcertificate': True,
+        'skip_download': True,
+        'ignoreerrors': True,
+        'proxy': proxy
+    }
+    if cookies_file:
+        ydl_opts['cookiefile'] = str(cookies_file)
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                return None
+            
+            # استخراج الجودات (للـ YouTube بشكل أساسي)
+            formats = info.get('formats', [])
+            resolutions = set()
+            for f in formats:
+                height = f.get('height')
+                if height and height >= 144:
+                    resolutions.add(height)
+            
+            # ترتيب الجودات تنازلياً
+            sorted_res = sorted(list(resolutions), reverse=True)
+            
+            # تقليل عدد الخيارات لعدم إرباك المستخدم
+            filtered_res = []
+            seen_standard = set()
+            standards = [2160, 1440, 1080, 720, 480, 360, 240, 144]
+            
+            for res in sorted_res:
+                for std in standards:
+                    if res >= std and std not in seen_standard:
+                        filtered_res.append(res)
+                        seen_standard.add(std)
+                        break
+            
+            return {
+                'title': info.get('title'),
+                'duration': info.get('duration'),
+                'thumbnail': info.get('thumbnail'),
+                'resolutions': sorted(filtered_res, reverse=True),
+                'is_playlist': 'entries' in info or 'list=' in url or 'playlist' in url,
+                'platform': detect_platform_from_url(url),
+                'info': info # نمرر الـ info بالكامل لاستخدامه لاحقاً إذا لزم الأمر
+            }
+    except Exception as e:
+        logger.error(f"Info Extraction Error: {e}")
+        return None
+
 def maybe_report_failure(user_id, url, platform, reason, sid="", size_mb=0, title=""):
     if BotState.report_logs and user_id != Config.ADMIN_ID:
         send_failure_report(user_id, url, platform, reason, sid=sid, size_mb=size_mb, title=title)
@@ -1114,7 +1263,6 @@ def process_download(message, quality_type, url=None):
     # Old slot management removed - QueueManager handles it
     
     progress_msg = None
-    upload_event = threading.Event()
     
     try:
         sid = sanitize_filename(generate_sid())
@@ -1201,7 +1349,40 @@ def process_download(message, quality_type, url=None):
             output_template = os.path.join(target_dir, f"video_{sid}.%(ext)s")
 
         
-        cookies_file = str(get_cookies_file(source_url) or "")
+        cookies_file = get_cookies_file(source_url)
+        if cookies_file: cookies_file = str(cookies_file)
+        else: cookies_file = None
+        
+        # --- محاولة الرفع المباشر عبر الرابط (Direct URL Upload) ---
+        # توفر هذه الميزة سرعة كبيرة للملفات الصغيرة (أقل من 20MB) لبعض المنصات
+        if platform in ['tiktok', 'instagram'] and quality_type not in ['audio', 'mute']:
+            try:
+                from src.core.proxy_manager import proxy_manager
+                proxy = proxy_manager.get_proxy()
+                
+                # نستخدم إعدادات بسيطة وسريعة للفحص
+                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'cookiefile': cookies_file, 'format': 'best', 'proxy': proxy}) as ydl:
+                    info = ydl.extract_info(source_url, download=False)
+                    direct_url = info.get('url')
+                    size = info.get('filesize') or info.get('filesize_approx') or 0
+                    
+                    if direct_url and 0 < size < (20 * 1024 * 1024):
+                        logger.info(f"🚀 Direct URL Upload: {platform} ({size/(1024*1024):.2f}MB)")
+                        update_progress_message(progress_msg.message_id, message.chat.id, translation_system.get(uid, 'upload_started'), 50)
+                        
+                        sent_msg = bot.send_video(
+                            message.chat.id, direct_url, 
+                            caption=_build_video_caption(uid, info.get('title', ''), "", platform, format_seconds(info.get('duration', 0)), f"{size/(1024*1024):.2f}", Config.BOT_SIG),
+                            parse_mode="HTML"
+                        )
+                        if sent_msg:
+                            save_to_cache(source_url, quality_type, sent_msg.video.file_id, title=info.get('title', ''), platform=platform, size_mb=size/(1024*1024))
+                            log_download(uid, source_url, "url_upload_success", size_mb=size/(1024*1024), platform=platform, title=info.get('title', ''), sid=sid)
+                            _delete_progress_message(message, progress_msg)
+                            return
+            except Exception as e:
+                logger.debug(f"Direct URL Upload skipped: {e}")
+                # إذا فشل، نكمل للتحميل العادي دون إزعاج المستخدم
         if not cookies_file: cookies_file = None
         
         download_progress_hook = _build_progress_hook(cancel_event, progress_msg, message.chat.id, download_started_text, progress_markup)
@@ -1286,21 +1467,50 @@ def process_download(message, quality_type, url=None):
                 
                 update_progress_message(progress_msg.message_id, message.chat.id, translation_system.get(uid, 'upload_started'), 0)
                 
-                media_group = []
-                for i, file_path in enumerate(downloaded_files):
-                    ext = os.path.splitext(file_path)[1].lower().lstrip('.')
-                    is_photo = ext in IMAGE_EXTS
-                    
-                    if is_photo:
-                        media = types.InputMediaPhoto(open(file_path, 'rb'), caption=caption if i==0 else None, parse_mode="HTML")
-                    else:
-                        media = types.InputMediaVideo(open(file_path, 'rb'), caption=caption if i==0 else None, parse_mode="HTML", supports_streaming=True)
-                    media_group.append(media)
-                
                 # تقسيم الألبوم إلى مجموعات من 10 (الحد الأقصى لتيليجرام)
-                for i in range(0, len(media_group), 10):
-                    chunk = media_group[i:i+10]
-                    bot.send_media_group(message.chat.id, chunk, timeout=500)
+                for i in range(0, len(downloaded_files), 10):
+                    chunk_files = downloaded_files[i:i+10]
+                    media_group = []
+                    opened_files = []
+                    
+                    try:
+                        for j, file_path in enumerate(chunk_files):
+                            ext = os.path.splitext(file_path)[1].lower().lstrip('.')
+                            is_photo = ext in IMAGE_EXTS
+                            
+                            f = open(file_path, 'rb')
+                            opened_files.append(f)
+                            
+                            # الكابشن يظهر فقط في أول صورة/فيديو في الألبوم الكلي
+                            is_first = (i == 0 and j == 0)
+                            current_caption = caption if is_first else None
+                            
+                            if is_photo:
+                                media = types.InputMediaPhoto(f, caption=current_caption, parse_mode="HTML")
+                            else:
+                                media = types.InputMediaVideo(f, caption=current_caption, parse_mode="HTML", supports_streaming=True)
+                            media_group.append(media)
+                        
+                        # محاولة إرسال مجموعة الوسائط مع إعادة المحاولة عند الفشل
+                        for retry in range(3):
+                            try:
+                                # إعادة مؤشر الملف للبداية في كل محاولة إرسال
+                                for f in opened_files:
+                                    try: f.seek(0)
+                                    except: pass
+                                    
+                                bot.send_media_group(message.chat.id, media_group, timeout=600)
+                                break
+                            except Exception as e:
+                                if retry == 2: raise e
+                                logger.warning(f"Media group send retry {retry+1}: {e}")
+                                time.sleep(3)
+                    finally:
+                        # إغلاق الملفات فور الانتهاء من إرسال المجموعة
+                        for f in opened_files:
+                            try: f.close()
+                            except: pass
+                    
                     time.sleep(1)
                     
                 log_download(uid, source_url, "success", size_mb=total_size_mb, platform=platform, title=video_title, sid=sid)
@@ -1355,19 +1565,8 @@ def process_download(message, quality_type, url=None):
                         Config.BOT_SIG
                     )
 
-                    def simulate_upload_progress():
-                        try:
-                            est_time = max(0.2, min(1.5, file_size_mb / 100))
-                            for i in range(10, 101, 10):
-                                if upload_event.wait(est_time): break
-                                update_progress_message(progress_msg.message_id, message.chat.id, download_completed_text, i)
-                            time.sleep(0.5)
-                            try: bot.delete_message(message.chat.id, progress_msg.message_id)
-                            except: pass
-                        except: pass
-
-                    upload_thread = threading.Thread(target=simulate_upload_progress, daemon=True)
-                    upload_thread.start()
+                    last_percent_dict = {'value': 0}
+                    upload_text = translation_system.get(uid, 'upload_started', default="🚀 جاري الرفع إلى تيليجرام...")
 
                     thumb_path = None
                     if quality_type != 'audio':
@@ -1376,7 +1575,7 @@ def process_download(message, quality_type, url=None):
                             thumb_path = download_thumbnail(info.get('thumbnail'), target_dir, sid)
 
                     if ext in IMAGE_EXTS:
-                        with open(file_path, 'rb') as f:
+                        with ProgressFileReader(file_path, upload_progress_callback, progress_msg.message_id, message.chat.id, upload_text, last_percent_dict) as f:
                             sent_msg = bot.send_photo(
                                 message.chat.id, f,
                                 caption=caption,
@@ -1389,7 +1588,7 @@ def process_download(message, quality_type, url=None):
                                     duration=duration
                                 )
                     elif quality_type == 'audio':
-                        with open(file_path, 'rb') as a:
+                        with ProgressFileReader(file_path, upload_progress_callback, progress_msg.message_id, message.chat.id, upload_text, last_percent_dict) as a:
                             sent_msg = bot.send_audio(
                                 message.chat.id, a,
                                 caption=f"🎵 <b>{video_title}</b>\n\n{Config.BOT_SIG}",
@@ -1405,7 +1604,6 @@ def process_download(message, quality_type, url=None):
                     elif quality_type == 'mute':
                         mute_path = mute_video_file(file_path)
                         if not mute_path or not os.path.exists(mute_path):
-                            upload_event.set()
                             _delete_progress_message(message, progress_msg)
                             bot.send_message(
                                 message.chat.id,
@@ -1423,7 +1621,7 @@ def process_download(message, quality_type, url=None):
                         except: pass
                         file_path = mute_path
 
-                        with open(file_path, 'rb') as v:
+                        with ProgressFileReader(file_path, upload_progress_callback, progress_msg.message_id, message.chat.id, upload_text, last_percent_dict) as v:
                             t = open(thumb_path, 'rb') if thumb_path and os.path.exists(thumb_path) else None
                             sent_msg = None
                             if file_size_mb > Config.DOCUMENT_THRESHOLD_MB:
@@ -1454,7 +1652,7 @@ def process_download(message, quality_type, url=None):
                             if t:
                                 t.close()
                     else:
-                        with open(file_path, 'rb') as v:
+                        with ProgressFileReader(file_path, upload_progress_callback, progress_msg.message_id, message.chat.id, upload_text, last_percent_dict) as v:
                             t = open(thumb_path, 'rb') if thumb_path and os.path.exists(thumb_path) else None
                             sent_msg = None
                             if file_size_mb > Config.DOCUMENT_THRESHOLD_MB:
@@ -1487,8 +1685,7 @@ def process_download(message, quality_type, url=None):
                             if t:
                                 t.close()
             
-                    upload_event.set()
-                    upload_thread.join(timeout=2)
+                    _delete_progress_message(message, progress_msg)
             
                     delayed_delete(file_path, delay=600)
                     if thumb_path:
@@ -1509,7 +1706,6 @@ def process_download(message, quality_type, url=None):
 
         except Exception as e:
             logger.error(f"DL Error {uid} ({platform}): {e}")
-            upload_event.set()
             _delete_progress_message(message, progress_msg)
             
             er_msg = str(e).lower()
@@ -1961,7 +2157,13 @@ def process_playlist(message, sid):
         
         added_count = 0
         for entry in valid_entries:
-            video_url = entry.get('url') or f"https://www.youtube.com/watch?v={entry.get('id')}"
+            video_url = entry.get('url')
+            if not video_url and entry.get('id'):
+                # Fallback for YouTube if URL is missing
+                video_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
+            
+            if not video_url:
+                continue
             
             # محاكاة رسالة جديدة لكل فيديو
             dummy_message = type('DummyMessage', (), {'chat': message.chat, 'from_user': message.from_user, 'message_id': message.message_id, 'text': video_url})()

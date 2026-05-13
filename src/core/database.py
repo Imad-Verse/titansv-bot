@@ -81,6 +81,7 @@ def init_db():
             # جدول التخزين المؤقت (Caching)
             cursor.execute('''CREATE TABLE IF NOT EXISTS media_cache (
                 url TEXT, 
+                unique_id TEXT,
                 quality_type TEXT, 
                 file_id TEXT, 
                 title TEXT, 
@@ -88,14 +89,19 @@ def init_db():
                 duration TEXT,
                 size_mb REAL,
                 platform TEXT,
-                timestamp TEXT,
-                PRIMARY KEY (url, quality_type))''')
+                timestamp TEXT)''')
             
+            # إضافة عمود unique_id إذا لم يكن موجوداً (Migration)
+            try:
+                cursor.execute('ALTER TABLE media_cache ADD COLUMN unique_id TEXT')
+            except: pass
+
             # الفهارس (Indexes) لسرعة البحث
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_date ON download_logs(date);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_sid ON download_logs(sid);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_cache_url ON media_cache(url);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_cache_unique ON media_cache(unique_id);')
             
             conn.commit()
             logger.info("Database initialized successfully.")
@@ -459,12 +465,18 @@ def delete_broadcast_messages_db(broadcast_id):
         pass
 
 def get_cached_media(url, quality_type):
-    """جلب بيانات الوسائط المخزنة مؤقتاً"""
+    """جلب بيانات الوسائط المخزنة مؤقتاً باستخدام المعرف الفريد"""
+    from src.core.utils import get_media_unique_id
+    unique_id = get_media_unique_id(url)
+    
     try:
         with db_session() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            res = cursor.execute('SELECT * FROM media_cache WHERE url=? AND quality_type=?', (url, quality_type)).fetchone()
+            # نحاول البحث بالـ unique_id أولاً، ثم بالـ url كخطة بديلة
+            res = cursor.execute('SELECT * FROM media_cache WHERE unique_id=? AND quality_type=?', (unique_id, quality_type)).fetchone()
+            if not res:
+                res = cursor.execute('SELECT * FROM media_cache WHERE url=? AND quality_type=?', (url, quality_type)).fetchone()
             return dict(res) if res else None
     except Exception as e:
         logger.error(f"Get cache error: {e}")
@@ -472,13 +484,19 @@ def get_cached_media(url, quality_type):
 
 def save_to_cache(url, quality_type, file_id, title='', description='', duration='', size_mb=0, platform='unknown'):
     """حفظ وسائط في التخزين المؤقت"""
+    from src.core.utils import get_media_unique_id
+    unique_id = get_media_unique_id(url)
+    
     try:
         with db_session() as conn:
             now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            conn.execute('''INSERT OR REPLACE INTO media_cache 
-                            (url, quality_type, file_id, title, description, duration, size_mb, platform, timestamp)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                         (url, quality_type, file_id, title, description, duration, size_mb, platform, now))
+            # نحذف أي سجل قديم بنفس المعرف والجودة قبل الإضافة لضمان التحديث
+            conn.execute('DELETE FROM media_cache WHERE (unique_id=? OR url=?) AND quality_type=?', (unique_id, url, quality_type))
+            
+            conn.execute('''INSERT INTO media_cache 
+                            (url, unique_id, quality_type, file_id, title, description, duration, size_mb, platform, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                         (url, unique_id, quality_type, file_id, title, description, duration, size_mb, platform, now))
             conn.commit()
             return True
     except Exception as e:

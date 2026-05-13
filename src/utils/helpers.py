@@ -94,3 +94,43 @@ def sanitize_filename(name):
 def generate_sid(prefix=""):
     """توليد معرف فريد قصير لاستخدامه في callback_data وأسماء الملفات"""
     return f"{prefix}{secrets.token_hex(6)}"
+
+def get_media_unique_id(url):
+    """استخراج معرف فريد للمحتوى (مثل ID الفيديو) لاستخدامه في الكاش"""
+    if not url: return None
+    try:
+        platform = detect_platform_from_url(url)
+        parsed = urlparse(url)
+        
+        if platform == 'youtube':
+            if 'youtu.be' in parsed.netloc:
+                return parsed.path.lstrip('/')
+            query = parse_qs(parsed.query)
+            if 'v' in query:
+                return query['v'][0]
+                
+        elif platform == 'tiktok':
+            # الروابط غالباً تكون tiktok.com/@user/video/ID
+            parts = parsed.path.strip('/').split('/')
+            if 'video' in parts:
+                return parts[parts.index('video') + 1].split('?')[0]
+            elif parts and parts[-1].isdigit():
+                return parts[-1].split('?')[0]
+                
+        elif platform == 'instagram':
+            # الروابط غالباً تكون instagram.com/reels/ID/ أو instagram.com/p/ID/
+            parts = parsed.path.strip('/').split('/')
+            if parts and parts[0] in ['reels', 'reel', 'p', 'tv']:
+                return parts[1].split('?')[0]
+                
+        elif platform == 'facebook':
+            query = parse_qs(parsed.query)
+            if 'v' in query: return query['v'][0]
+            if 'videos' in parsed.path:
+                parts = parsed.path.strip('/').split('/')
+                return parts[-1].split('?')[0]
+                
+        # إذا لم نجد معرفاً خاصاً، نستخدم الرابط المنظف (Clean URL) كمعرف
+        return clean_url(url)
+    except:
+        return url
