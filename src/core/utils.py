@@ -11,16 +11,69 @@ from src.utils.helpers import (
     sanitize_filename, generate_sid, clean_url, format_size
 )
 
-# --- إعداد نظام التسجيل (Logging) ---
+import logging
+from datetime import datetime
+from rich.console import Console
+from rich.theme import Theme
+from src.core.config import Config
+
+# --- إعداد نظام التسجيل الاحترافي (Professional Logging System) ---
+custom_theme = Theme({
+    "info": "cyan",
+    "warning": "bold yellow",
+    "error": "bold red",
+    "success": "bold green",
+    "wait": "bold magenta",
+})
+
+console = Console(theme=custom_theme)
+LEVEL_MAP = {"DEBUG": 10, "INFO": 20, "SUCCESS": 25, "WARNING": 30, "ERROR": 40, "CRITICAL": 50}
+
+# File Logging Setup
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(Config.LOG_FILE, encoding='utf-8'),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.FileHandler(Config.LOG_FILE, encoding='utf-8')]
 )
-logger = logging.getLogger("TitanBot")
+
+class TitanLogger:
+    def __init__(self, name="TitanBot"):
+        self.logger = logging.getLogger(name)
+        self.current_level = LEVEL_MAP.get(Config.LOG_LEVEL, 20)
+
+    def _should_print(self, level_name):
+        return LEVEL_MAP.get(level_name, 20) >= self.current_level
+
+    def info(self, msg):
+        self.logger.info(msg)
+        if self._should_print("INFO"):
+            console.print(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim] ℹ️ {msg}", style="info")
+
+    def success(self, msg):
+        self.logger.info(f"SUCCESS: {msg}")
+        if self._should_print("SUCCESS"):
+            console.print(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim] ✅ {msg}", style="success")
+
+    def warning(self, msg):
+        self.logger.warning(msg)
+        if self._should_print("WARNING"):
+            console.print(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim] ⚠️ {msg}", style="warning")
+
+    def error(self, msg):
+        self.logger.error(msg)
+        if self._should_print("ERROR"):
+            console.print(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim] ❌ {msg}", style="error")
+
+    def critical(self, msg):
+        self.logger.critical(msg)
+        console.print(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim] 💀 [bold red]{msg}[/bold red]")
+
+    def debug(self, msg):
+        self.logger.debug(msg)
+        if self._should_print("DEBUG"):
+            console.print(f"[dim]{datetime.now().strftime('%H:%M:%S')}[/dim] 🔍 {msg}", style="dim")
+
+logger = TitanLogger()
 
 def _initialize_ffmpeg():
     """التحقق من توفر FFmpeg وإعداده في بيئة النظام"""

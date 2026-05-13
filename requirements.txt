@@ -4,3 +4,4 @@ python-dotenv
 requests
 psutil
 browser-cookie3
+rich

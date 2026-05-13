@@ -16,6 +16,7 @@ class Config:
         sys.exit(1)
 
     ADMIN_ID = int(os.getenv('ADMIN_ID', 362464035))
+    LOG_LEVEL = os.getenv('TITAN_LOG_LEVEL', 'INFO').upper()
 
     # --- Local Telegram API Server ---
     LOCAL_SERVER_URL = os.getenv('LOCAL_SERVER_URL', 'http://localhost:8081')

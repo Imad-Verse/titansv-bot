@@ -54,10 +54,11 @@ def main():
     except Exception as e:
         logger.warning(f"Failed to load user languages: {e}")
     
-    print("==================================================")
-    print("      T I T A N   S V   B O T   S Y S T E M")
-    print("==================================================")
-    print("")
+    if Config.LOG_LEVEL == "INFO" or Config.LOG_LEVEL == "DEBUG":
+        print("==================================================")
+        print("      T I T A N   S V   B O T   S Y S T E M")
+        print("==================================================")
+        print("")
 
     logger.info("System is initializing...")
     
@@ -72,12 +73,14 @@ def main():
     check_restart()
     configure_bot_commands()
     
-    logger.info("Bot is online and ready to serve!")
-    print("")
-    print("==================================================")
-    print("           B O T   I S   R U N N I N G")
-    print("==================================================")
-    print("")
+    logger.success("Bot is online and ready to serve!")
+    
+    if Config.LOG_LEVEL == "INFO" or Config.LOG_LEVEL == "DEBUG":
+        print("")
+        print("==================================================")
+        print("           B O T   I S   R U N N I N G")
+        print("==================================================")
+        print("")
 
     # Start Polling
     try:
