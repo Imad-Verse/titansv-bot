@@ -43,7 +43,7 @@ class Config:
 
     # --- نظام البروكسي (Proxy Rotation) ---
     PROXIES_FILE = DATA_DIR / "proxies.txt"
-    PROXIES_URL = os.getenv('PROXIES_URL', 'https://proxy.webshare.io/api/v2/proxy/list/download/ydcmwgdxikkoncvpkoktvomrxczjgtyaztwtmwqq/-/any/username/direct/-/')
+    PROXIES_URL = os.getenv('PROXIES_URL', '')
     USE_PROXIES = os.getenv('USE_PROXIES', 'False').lower() == 'true'
 
     # --- إعدادات الوسائط والكوكيز ---
