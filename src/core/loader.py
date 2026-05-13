@@ -2,9 +2,14 @@ import telebot
 import threading
 import time
 from collections import defaultdict
+from telebot import apihelper
 from src.core.config import Config
 
 # تهيئة البوت باستخدام التوكن من الإعدادات الجديدة
+if Config.USE_LOCAL_SERVER:
+    apihelper.API_URL = f"{Config.LOCAL_SERVER_URL}/bot{{0}}/{{1}}"
+    apihelper.FILE_URL = f"{Config.LOCAL_SERVER_URL}/file/bot{{0}}/{{1}}"
+
 bot = telebot.TeleBot(Config.API_TOKEN)
 
 class BotState:

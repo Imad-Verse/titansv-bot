@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  # Local Telegram Bot API Server
+  telegram-bot-api:
+    image: aiogram/telegram-bot-api:latest
+    container_name: telegram-bot-api
+    restart: always
+    environment:
+      TELEGRAM_API_ID: ${TELEGRAM_API_ID}
+      TELEGRAM_API_HASH: ${TELEGRAM_API_HASH}
+      TELEGRAM_STAT: "1"
+    volumes:
+      - telegram-bot-api-data:/var/lib/telegram-bot-api
+    ports:
+      - "8081:8081"
+
+  # TitanSv Bot
+  bot:
+    build: .
+    container_name: titansv-bot
+    restart: always
+    depends_on:
+      - telegram-bot-api
+    environment:
+      - USE_LOCAL_SERVER=True
+      - LOCAL_SERVER_URL=http://telegram-bot-api:8081
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/venv  # Don't overwrite container venv with local one
+
+volumes:
+  telegram-bot-api-data:

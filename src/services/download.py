@@ -35,7 +35,9 @@ from src.core.database import (
     delete_broadcast_messages_db,
     get_url_by_sid,
     get_total_users_count,
-    get_active_user_ids
+    get_active_user_ids,
+    get_cached_media,
+    save_to_cache
 )
 from src.services.translation import translation_system
 
@@ -1131,12 +1133,49 @@ def process_download(message, quality_type, url=None):
         source_url = url if url else message.text
         download_url = source_url
         platform = detect_platform_from_url(source_url)
-        video_title = ""
-        file_size_mb = 0
+        
+        # --- توحيد الروابط (Normalization) قبل فحص الكاش ---
         if platform == 'tiktok':
             source_url, download_url = prepare_tiktok_urls(source_url)
             if source_url != (url if url else message.text):
                 logger.info(f"Expanded TikTok URL: {source_url}")
+        
+        # --- نظام التخزين المؤقت (Caching) ---
+        cached_media = get_cached_media(source_url, quality_type)
+        if cached_media:
+            try:
+                # تجهيز النص المرفق
+                caption = _build_video_caption(
+                    uid,
+                    cached_media['title'],
+                    cached_media['description'],
+                    cached_media['platform'],
+                    cached_media['duration'],
+                    f"{cached_media['size_mb']:.2f}",
+                    Config.BOT_SIG
+                )
+                
+                # اختيار طريقة الإرسال بناءً على النوع والحجم
+                if quality_type == 'audio':
+                    bot.send_audio(message.chat.id, cached_media['file_id'], caption=caption, parse_mode="HTML")
+                else:
+                    # إذا كان النوع فيديو، نتحقق من الحجم لإرساله كفيديو أو ملف
+                    if cached_media['size_mb'] > Config.DOCUMENT_THRESHOLD_MB:
+                        bot.send_document(message.chat.id, cached_media['file_id'], caption=caption, parse_mode="HTML", reply_markup=video_markup(sid, uid))
+                    else:
+                        bot.send_video(message.chat.id, cached_media['file_id'], caption=caption, parse_mode="HTML", reply_markup=video_markup(sid, uid), supports_streaming=True)
+                
+                # تسجيل العملية
+                log_download(uid, source_url, "cached_success", size_mb=cached_media['size_mb'], platform=platform, title=cached_media['title'], sid=sid)
+                update_download_stats()
+                _release_download_slot(uid)
+                return
+            except Exception as e:
+                logger.warning(f"Failed to send cached media: {e}")
+                # في حال فشل الكاش، نكمل عملية التحميل العادية
+        video_title = ""
+        file_size_mb = 0
+        if platform == 'tiktok':
             if download_url != source_url:
                 logger.info(f"Fallback TikTok URL: {download_url}")
             if '/photo/' in source_url:
@@ -1256,7 +1295,7 @@ def process_download(message, quality_type, url=None):
                 file_size_mb = file_size_bytes / (1024 * 1024) if file_size_bytes else 0
 
                 video_title, video_description = _extract_title_and_description(info, platform)
-                if _exceeds_telegram_upload_limit(file_size_bytes):
+                if file_size_bytes > Config.MAX_FILE_SIZE:
                     file_too_large_text = _build_file_too_large_message(uid, file_size_mb)
                     bot.edit_message_text(
                         file_too_large_text,
@@ -1311,12 +1350,18 @@ def process_download(message, quality_type, url=None):
 
                     if quality_type == 'audio':
                         with open(file_path, 'rb') as a:
-                            bot.send_audio(
+                            sent_msg = bot.send_audio(
                                 message.chat.id, a,
                                 caption=f"🎵 <b>{video_title}</b>\n\n{Config.BOT_SIG}",
                                 parse_mode="HTML",
                                 timeout=500
                             )
+                            if sent_msg and sent_msg.audio:
+                                save_to_cache(
+                                    source_url, quality_type, sent_msg.audio.file_id,
+                                    title=video_title, platform=platform, size_mb=file_size_mb,
+                                    duration=duration
+                                )
                     elif quality_type == 'mute':
                         mute_path = mute_video_file(file_path)
                         if not mute_path or not os.path.exists(mute_path):
@@ -1340,25 +1385,65 @@ def process_download(message, quality_type, url=None):
 
                         with open(file_path, 'rb') as v:
                             t = open(thumb_path, 'rb') if thumb_path and os.path.exists(thumb_path) else None
-                            bot.send_video(
-                                message.chat.id, v, 
-                                caption=caption, parse_mode="HTML",
-                                # No buttons for mute video
-                                timeout=500, supports_streaming=True,
-                                thumb=t
-                            )
+                            sent_msg = None
+                            if file_size_mb > Config.DOCUMENT_THRESHOLD_MB:
+                                sent_msg = bot.send_document(
+                                    message.chat.id, v,
+                                    caption=caption, parse_mode="HTML",
+                                    thumb=t, timeout=600
+                                )
+                                if sent_msg and sent_msg.document:
+                                    save_to_cache(
+                                        source_url, quality_type, sent_msg.document.file_id,
+                                        title=video_title, description=video_description,
+                                        platform=platform, size_mb=file_size_mb, duration=duration
+                                    )
+                            else:
+                                sent_msg = bot.send_video(
+                                    message.chat.id, v, 
+                                    caption=caption, parse_mode="HTML",
+                                    timeout=500, supports_streaming=True,
+                                    thumb=t
+                                )
+                                if sent_msg and sent_msg.video:
+                                    save_to_cache(
+                                        source_url, quality_type, sent_msg.video.file_id,
+                                        title=video_title, description=video_description,
+                                        platform=platform, size_mb=file_size_mb, duration=duration
+                                    )
                             if t:
                                 t.close()
                     else:
                         with open(file_path, 'rb') as v:
                             t = open(thumb_path, 'rb') if thumb_path and os.path.exists(thumb_path) else None
-                            bot.send_video(
-                                message.chat.id, v, 
-                                caption=caption, parse_mode="HTML", 
-                                reply_markup=video_markup(sid, uid), 
-                                timeout=500, supports_streaming=True,
-                                thumb=t
-                            )
+                            sent_msg = None
+                            if file_size_mb > Config.DOCUMENT_THRESHOLD_MB:
+                                sent_msg = bot.send_document(
+                                    message.chat.id, v,
+                                    caption=caption, parse_mode="HTML",
+                                    reply_markup=video_markup(sid, uid),
+                                    thumb=t, timeout=600
+                                )
+                                if sent_msg and sent_msg.document:
+                                    save_to_cache(
+                                        source_url, quality_type, sent_msg.document.file_id,
+                                        title=video_title, description=video_description,
+                                        platform=platform, size_mb=file_size_mb, duration=duration
+                                    )
+                            else:
+                                sent_msg = bot.send_video(
+                                    message.chat.id, v, 
+                                    caption=caption, parse_mode="HTML", 
+                                    reply_markup=video_markup(sid, uid), 
+                                    timeout=500, supports_streaming=True,
+                                    thumb=t
+                                )
+                                if sent_msg and sent_msg.video:
+                                    save_to_cache(
+                                        source_url, quality_type, sent_msg.video.file_id,
+                                        title=video_title, description=video_description,
+                                        platform=platform, size_mb=file_size_mb, duration=duration
+                                    )
                             if t:
                                 t.close()
             
@@ -1498,7 +1583,7 @@ def process_local_conversion(message, sid, conversion_type):
             raise Exception("Conversion failed")
 
         output_size = os.path.getsize(output_file) if os.path.exists(output_file) else 0
-        if _exceeds_telegram_upload_limit(output_size):
+        if output_size > Config.MAX_FILE_SIZE:
             try:
                 bot.delete_message(message.chat.id, msg.message_id)
             except:
@@ -1512,6 +1597,7 @@ def process_local_conversion(message, sid, conversion_type):
             delayed_delete(output_file)
             return
             
+        output_size_mb = output_size / (1024 * 1024)
         if conversion_type == 'audio':
             with open(output_file, 'rb') as a:
                 bot.send_audio(
@@ -1522,12 +1608,20 @@ def process_local_conversion(message, sid, conversion_type):
                 )
         else:
             with open(output_file, 'rb') as v:
-                bot.send_video(
-                    message.chat.id, v,
-                    caption=f"🔇 {translation_system.get(uid, 'mute_success', bot_sig=Config.BOT_SIG)}",
-                    parse_mode="HTML",
-                    timeout=500
-                )
+                if output_size_mb > Config.DOCUMENT_THRESHOLD_MB:
+                    bot.send_document(
+                        message.chat.id, v,
+                        caption=f"🔇 {translation_system.get(uid, 'mute_success', bot_sig=Config.BOT_SIG)}",
+                        parse_mode="HTML",
+                        timeout=500
+                    )
+                else:
+                    bot.send_video(
+                        message.chat.id, v,
+                        caption=f"🔇 {translation_system.get(uid, 'mute_success', bot_sig=Config.BOT_SIG)}",
+                        parse_mode="HTML",
+                        timeout=500
+                    )
         
         delayed_delete(output_file)
         try: bot.delete_message(message.chat.id, msg.message_id)

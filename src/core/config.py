@@ -17,6 +17,10 @@ class Config:
 
     ADMIN_ID = int(os.getenv('ADMIN_ID', 362464035))
 
+    # --- Local Telegram API Server ---
+    LOCAL_SERVER_URL = os.getenv('LOCAL_SERVER_URL', 'http://localhost:8081')
+    USE_LOCAL_SERVER = os.getenv('USE_LOCAL_SERVER', 'False').lower() == 'true'
+
     # --- المسارات (Pathlib) ---
     BASE_DIR = Path(__file__).resolve().parent.parent.parent
     
@@ -61,8 +65,11 @@ class Config:
     MAX_FILE_SIZE_MB = int(os.getenv('MAX_FILE_SIZE_MB', 2048))
     MAX_FILE_SIZE = int(os.getenv('MAX_FILE_SIZE', MAX_FILE_SIZE_MB * 1024 * 1024))
     
-    TELEGRAM_UPLOAD_LIMIT_MB = int(os.getenv('TELEGRAM_UPLOAD_LIMIT_MB', 50))
+    TELEGRAM_UPLOAD_LIMIT_MB = int(os.getenv('TELEGRAM_UPLOAD_LIMIT_MB', 2000))
     TELEGRAM_UPLOAD_LIMIT = int(os.getenv('TELEGRAM_UPLOAD_LIMIT', TELEGRAM_UPLOAD_LIMIT_MB * 1024 * 1024))
+    
+    DOCUMENT_THRESHOLD_MB = int(os.getenv('DOCUMENT_THRESHOLD_MB', 50))
+    DOCUMENT_THRESHOLD = DOCUMENT_THRESHOLD_MB * 1024 * 1024
     
     MAX_VIDEO_DURATION = int(os.getenv('MAX_VIDEO_DURATION', 7200)) # 2 Hours
 

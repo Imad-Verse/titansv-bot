@@ -77,11 +77,25 @@ def init_db():
                 broadcast_id TEXT,
                 user_id TEXT,
                 message_id TEXT)''')
+
+            # جدول التخزين المؤقت (Caching)
+            cursor.execute('''CREATE TABLE IF NOT EXISTS media_cache (
+                url TEXT, 
+                quality_type TEXT, 
+                file_id TEXT, 
+                title TEXT, 
+                description TEXT,
+                duration TEXT,
+                size_mb REAL,
+                platform TEXT,
+                timestamp TEXT,
+                PRIMARY KEY (url, quality_type))''')
             
             # الفهارس (Indexes) لسرعة البحث
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_date ON download_logs(date);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_logs_sid ON download_logs(sid);')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_users_is_banned ON users(is_banned);')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_cache_url ON media_cache(url);')
             
             conn.commit()
             logger.info("Database initialized successfully.")
@@ -443,4 +457,31 @@ def delete_broadcast_messages_db(broadcast_id):
             conn.commit()
     except Exception:
         pass
+
+def get_cached_media(url, quality_type):
+    """جلب بيانات الوسائط المخزنة مؤقتاً"""
+    try:
+        with db_session() as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            res = cursor.execute('SELECT * FROM media_cache WHERE url=? AND quality_type=?', (url, quality_type)).fetchone()
+            return dict(res) if res else None
+    except Exception as e:
+        logger.error(f"Get cache error: {e}")
+        return None
+
+def save_to_cache(url, quality_type, file_id, title='', description='', duration='', size_mb=0, platform='unknown'):
+    """حفظ وسائط في التخزين المؤقت"""
+    try:
+        with db_session() as conn:
+            now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute('''INSERT OR REPLACE INTO media_cache 
+                            (url, quality_type, file_id, title, description, duration, size_mb, platform, timestamp)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                         (url, quality_type, file_id, title, description, duration, size_mb, platform, now))
+            conn.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Save cache error: {e}")
+        return False
 
