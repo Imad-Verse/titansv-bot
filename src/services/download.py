@@ -58,19 +58,7 @@ def update_progress_message(msg_id, chat_id, text, percent, markup=None):
     except:
         return False
 
-def _acquire_download_slot(uid):
-    with BotState.lock:
-        if uid in BotState.active_downloads:
-            return "already_processing"
-        if len(BotState.active_downloads) >= 15:
-            return "server_busy"
-        BotState.active_downloads.add(uid)
-        return "ok"
-
-
-def _release_download_slot(uid):
-    with BotState.lock:
-        BotState.active_downloads.discard(uid)
+# --- removed old queue functions ---
 
 
 def _start_progress(uid, message, sid, text):
@@ -1117,13 +1105,7 @@ def process_download(message, quality_type, url=None):
     uid = message.from_user.id
     time.sleep(0.5)
     
-    slot_status = _acquire_download_slot(uid)
-    if slot_status == "already_processing":
-        bot.send_message(message.chat.id, translation_system.get(uid, 'already_processing'), parse_mode="HTML")
-        return
-    if slot_status == "server_busy":
-        bot.send_message(message.chat.id, translation_system.get(uid, 'server_busy'), parse_mode="HTML")
-        return
+    # Old slot management removed - QueueManager handles it
     
     progress_msg = None
     upload_event = threading.Event()
@@ -1168,7 +1150,6 @@ def process_download(message, quality_type, url=None):
                 # تسجيل العملية
                 log_download(uid, source_url, "cached_success", size_mb=cached_media['size_mb'], platform=platform, title=cached_media['title'], sid=sid)
                 update_download_stats()
-                _release_download_slot(uid)
                 return
             except Exception as e:
                 logger.warning(f"Failed to send cached media: {e}")
@@ -1523,7 +1504,6 @@ def process_download(message, quality_type, url=None):
             )
         except: pass
     finally:
-        _release_download_slot(uid)
         try:
             BotState.user_requests.pop(uid, None)
         except:
@@ -1598,12 +1578,26 @@ def process_local_conversion(message, sid, conversion_type):
             return
             
         output_size_mb = output_size / (1024 * 1024)
+        
+        # محاولة جلب معلومات الفيديو من الكاش لإضافتها كبيانات للملف الصوتي
+        original_url = get_url_by_sid(sid)
+        title = "Audio"
+        performer = f"@{get_bot_username()}"
+        if original_url:
+            # يمكن التحقق من أي جودة لأن العنوان غالبا ثابت
+            cached = get_cached_media(original_url, 'dl_high') or get_cached_media(original_url, 'dl_medium') or get_cached_media(original_url, 'dl_low')
+            if cached and cached.get('title'):
+                title = cached.get('title')[:60] # حد أقصى للتيليجرام
+                performer = cached.get('platform', performer).title()
+
         if conversion_type == 'audio':
             with open(output_file, 'rb') as a:
                 bot.send_audio(
                     message.chat.id, a,
                     caption=f"🎵 {translation_system.get(uid, 'audio_success', bot_sig=Config.BOT_SIG)}",
                     parse_mode="HTML",
+                    title=title,
+                    performer=performer,
                     timeout=500
                 )
         else:

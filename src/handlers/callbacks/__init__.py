@@ -10,6 +10,7 @@ from src.services.translation import translation_system
 from src.core.database import get_stats, get_url_by_sid
 from src.services.download import process_download, process_local_conversion
 from src.handlers.user import help_command, contact_button, send_main_menu, bots_list_command
+from src.core.loader import download_queue
 
 ADMIN_CALLBACKS = {
     'refresh_stats',
@@ -101,7 +102,17 @@ def callback_query(call):
             try: bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             
-            process_download(dummy_message, quality, url=url)
+            status = download_queue.submit(uid, call.message.chat.id, call.message.message_id, process_download, dummy_message, quality, url=url)
+            if status == "already_processing":
+                bot.answer_callback_query(call.id, translation_system.get(uid, 'already_processing'), show_alert=True)
+            elif status == "started":
+                bot.answer_callback_query(call.id, translation_system.get(uid, 'starting_download', default="جاري بدء التحميل..."))
+            else:
+                pos = status
+                msg = translation_system.get(uid, 'added_to_queue', pos=pos, default=f"⏳ السيرفر مزدحم حالياً. تم وضع طلبك في الطابور (الترتيب: {pos}). سيبدأ التحميل تلقائياً.")
+                bot.answer_callback_query(call.id, "⏳ طابور الانتظار", show_alert=False)
+                bot.send_message(call.message.chat.id, msg)
+                
         except Exception as e:
             logger.error(f"Callback DL Error: {e}")
             bot.answer_callback_query(call.id, translation_system.get(uid, 'request_processing_failed'), show_alert=True)
@@ -136,7 +147,13 @@ def callback_query(call):
             dummy_message.from_user = call.from_user
             quality = "audio" if action == "audio" else "mute"
             
-            process_local_conversion(dummy_message, sid, quality)
+            status = download_queue.submit(uid, call.message.chat.id, call.message.message_id, process_local_conversion, dummy_message, sid, quality)
+            if status == "already_processing":
+                bot.send_message(call.message.chat.id, translation_system.get(uid, 'already_processing'))
+            elif status != "started":
+                pos = status
+                msg = translation_system.get(uid, 'added_to_queue', pos=pos, default=f"⏳ السيرفر مزدحم حالياً. تم وضع طلبك في الطابور (الترتيب: {pos}). سيبدأ التحويل تلقائياً.")
+                bot.send_message(call.message.chat.id, msg)
             
         except Exception as e:
             logger.error(f"Action {call.data} error: {e}")

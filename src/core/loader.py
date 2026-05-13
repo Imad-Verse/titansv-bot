@@ -4,6 +4,7 @@ import time
 from collections import defaultdict
 from telebot import apihelper
 from src.core.config import Config
+from src.core.queue_manager import DownloadQueueManager
 
 # تهيئة البوت باستخدام التوكن من الإعدادات الجديدة
 if Config.USE_LOCAL_SERVER:
@@ -11,6 +12,7 @@ if Config.USE_LOCAL_SERVER:
     apihelper.FILE_URL = f"{Config.LOCAL_SERVER_URL}/file/bot{{0}}/{{1}}"
 
 bot = telebot.TeleBot(Config.API_TOKEN)
+download_queue = DownloadQueueManager(bot, max_concurrent=15)
 
 class BotState:
     """إدارة حالة البوت والمتغيرات العالمية بشكل منظم"""
