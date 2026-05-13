@@ -862,12 +862,6 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         'source_address': '0.0.0.0',
         'max_filesize': Config.MAX_FILE_SIZE,
         'merge_output_format': 'mp4',
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-            'Accept-Language': 'en-US,en;q=0.9,ar;q=0.8',
-            'Sec-Fetch-Mode': 'navigate',
-        }
     }
 
     if cookies_file:
