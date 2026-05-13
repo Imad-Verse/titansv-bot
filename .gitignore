@@ -143,8 +143,15 @@ cython_debug/
 # Project Specific
 logs/
 downloads/
-data/
-cookies/
 .titan_runtime/
 tmp_replace.py
 desktop.ini
+
+# Allow databases and cookies
+!data/
+data/*
+!data/*.db
+!data/*.sqlite
+!cookies/
+!cookies/**
+
