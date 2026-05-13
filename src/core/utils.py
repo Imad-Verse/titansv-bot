@@ -135,7 +135,7 @@ def get_cookies_file(url):
         host = ""
 
     # سجل تتبع لمعرفة الرابط الذي يتم فحصه
-    logger.debug(f"Checking cookies for host: {host}")
+    logger.info(f"Checking cookies for host: {host}")
 
     for domain, platform in Config.COOKIES_MAP.items():
         if host == domain or host.endswith(f".{domain}"):
@@ -145,11 +145,12 @@ def get_cookies_file(url):
             if cookie_path:
                 if cookie_path.exists():
                     if cookie_path.stat().st_size > 0:
+                        logger.info(f"Cookie file FOUND and ACTIVE: {cookie_path}")
                         return cookie_path
                     else:
-                        logger.warning(f"Cookie file found but is EMPTY: {cookie_path}")
+                        logger.error(f"Cookie file found but is EMPTY: {cookie_path}")
                 else:
-                    logger.debug(f"Cookie file NOT FOUND at: {cookie_path}")
+                    logger.info(f"Cookie file NOT FOUND at: {cookie_path}")
             
     return None
 
