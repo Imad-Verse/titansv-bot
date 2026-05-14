@@ -233,3 +233,13 @@ def start_cleanup_scheduler(interval_minutes=60):
     threading.Thread(target=_worker, daemon=True).start()
     logger.debug("✅ Cleanup scheduler initialized.")
 
+def get_bot_username():
+    """جلب يوزر البوت مع التخزين المؤقت في الحالة"""
+    from src.core.loader import bot, BotState
+    if BotState.username:
+        return BotState.username
+    try:
+        BotState.username = bot.get_me().username
+    except Exception:
+        BotState.username = ""
+    return BotState.username

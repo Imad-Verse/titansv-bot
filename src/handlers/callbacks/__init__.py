@@ -105,6 +105,8 @@ def callback_query(call):
             status = download_queue.submit(uid, call.message.chat.id, call.message.message_id, process_download, dummy_message, quality, url=url)
             if status == "already_processing":
                 bot.answer_callback_query(call.id, translation_system.get(uid, 'already_processing'), show_alert=True)
+            elif status == "already_in_queue":
+                bot.answer_callback_query(call.id, translation_system.get(uid, 'already_in_queue', default="⚠️ أنت موجود بالفعل في طابور الانتظار!"), show_alert=True)
             elif status == "started":
                 bot.answer_callback_query(call.id, translation_system.get(uid, 'starting_download', default="جاري بدء التحميل..."))
             else:
@@ -152,6 +154,8 @@ def callback_query(call):
             status = download_queue.submit(uid, call.message.chat.id, call.message.message_id, process_local_conversion, dummy_message, sid, quality)
             if status == "already_processing":
                 bot.send_message(call.message.chat.id, translation_system.get(uid, 'already_processing'))
+            elif status == "already_in_queue":
+                bot.send_message(call.message.chat.id, translation_system.get(uid, 'already_in_queue', default="⚠️ أنت موجود بالفعل في طابور الانتظار!"))
             elif status != "started":
                 pos = status
                 msg = translation_system.get(uid, 'added_to_queue', pos=pos, default=f"⏳ السيرفر مزدحم حالياً. تم وضع طلبك في الطابور (الترتيب: {pos}). سيبدأ التحويل تلقائياً.")

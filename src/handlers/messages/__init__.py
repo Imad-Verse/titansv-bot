@@ -70,41 +70,8 @@ def handle_urls(message):
             
             info = extract_media_info(u, cookies_file=get_cookies_path(pform))
             
-            markup = types.InlineKeyboardMarkup()
-            
-            if not info:
-                # إذا فشل الاستخراج، نستخدم الأزرار الافتراضية كخطة بديلة
-                markup.row(
-                    types.InlineKeyboardButton("🎬 جودة عالية 720+", callback_data=f"dl_high|{s}"),
-                    types.InlineKeyboardButton("🎥 جودة متوسطة 480", callback_data=f"dl_medium|{s}")
-                )
-                markup.row(
-                    types.InlineKeyboardButton("📱 جودة منخفضة 360", callback_data=f"dl_low|{s}"),
-                    types.InlineKeyboardButton("🎵 تحميل صوت فقط", callback_data=f"audio_{s}")
-                )
-            else:
-                # بناء أزرار الجودات المتاحة ديناميكياً
-                resolutions = info.get('resolutions', [])
-                if resolutions:
-                    # تقسيم الجودات لصفوف (كل صف جودتين)
-                    for i in range(0, len(resolutions), 2):
-                        row = []
-                        for res in resolutions[i:i+2]:
-                            label = f"🎥 {res}p"
-                            if res >= 1080: label = f"🌟 {res}p (FHD+)"
-                            elif res >= 720: label = f"🎬 {res}p (HD)"
-                            
-                            row.append(types.InlineKeyboardButton(label, callback_data=f"dl_{res}|{s}"))
-                        markup.row(*row)
-                else:
-                    # إذا لم توجد جودات محددة (مثل Instagram أحياناً)
-                    markup.row(
-                        types.InlineKeyboardButton("🎬 أفضل جودة متاحة", callback_data=f"dl_high|{s}"),
-                        types.InlineKeyboardButton("🎥 جودة متوسطة", callback_data=f"dl_medium|{s}")
-                    )
-                
-                # إضافة خيار الصوت
-                markup.row(types.InlineKeyboardButton("🎵 تحميل صوت فقط (MP3)", callback_data=f"audio_{s}"))
+            from src.utils.ui import create_quality_keyboard
+            markup = create_quality_keyboard(uid, s, info=info)
                 
 
 
