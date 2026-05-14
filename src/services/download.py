@@ -1009,6 +1009,9 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
             }
         }
         
+        # Use Chrome impersonation if available
+        ydl_opts['impersonate'] = 'chrome'
+        
         if 'shorts' in url.lower():
             ydl_opts['format'] = 'bestvideo+bestaudio/best'
         elif quality_type == 'high':
@@ -1026,6 +1029,11 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
              }]
         else:
              ydl_opts['format'] = 'best'
+             
+        ydl_opts['noplaylist'] = True
+        # Disable quiet mode for YouTube to debug format issues
+        ydl_opts['quiet'] = False
+        ydl_opts['no_warnings'] = False
     else:
         # Generic fallback for other platforms
         if quality_type == 'high':
@@ -1041,6 +1049,11 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
 def youtube_safe_download(url, ydl_opts, max_retries=3):
     """تحميل آمن من يوتيوب مع محاولات متعددة واستراتيجية التراجع والبروكسي"""
     from src.core.proxy_manager import proxy_manager
+    import random
+    
+    # إضافة تأخير عشوائي لتجنب اكتشاف البوت
+    ydl_opts['sleep_interval'] = random.randint(2, 5)
+    ydl_opts['max_sleep_interval'] = random.randint(6, 10)
     
     for i in range(max_retries):
         try:
@@ -1055,23 +1068,26 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
             if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {'youtube': {}}
             
             if i == 0:
-                # المحاولة الأولى: استخدام عميل الويب مع الكوكيز (لأن الكوكيز غالباً من متصفح ويب)
-                # إذا لم تنجح، سنغير العميل
+                # المحاولة الأولى: استخدام عميل الويب مع الكوكيز وتظاهر بالمتصفح
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['web', 'android']
+                ydl_opts['impersonate'] = 'chrome'
             
             elif i == 1:
-                # المحاولة الثانية: التركيز على عملاء الهواتف المحمولة
+                # المحاولة الثانية: التركيز على عملاء الهواتف المحمولة وتغيير الـ Referer
                 logger.info("YouTube Retry 2: Trying mobile clients (ios, mweb)")
                 ydl_opts['format'] = 'bestvideo+bestaudio/best'
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb', 'android']
+                ydl_opts['referer'] = 'https://www.google.com/'
+                ydl_opts['impersonate'] = 'safari'
                 
             elif i == 2:
-                # المحاولة الثالثة: الخيار النووي - بدون كوكيز وبأقل جودة
+                # المحاولة الثالثة: الخيار النووي - بدون كوكيز، وبدون impersonate، وبأقل جودة
                 logger.info("YouTube Retry 3: Clearing cookies and trying android client")
                 if 'cookiefile' in ydl_opts:
                     del ydl_opts['cookiefile']
                 ydl_opts['format'] = 'best'
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'mweb']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['android']
+                if 'impersonate' in ydl_opts: del ydl_opts['impersonate']
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -1084,7 +1100,8 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
                 logger.error("🛑 YouTube bot detection triggered! Cookies might be expired or blocked.")
             
             if i < max_retries - 1:
-                time.sleep(i * 3 + 2)
+                # تأخير أطول عند الفشل
+                time.sleep(i * 5 + 5)
             else:
                 raise e
     raise Exception("Youtube download failed after retries")

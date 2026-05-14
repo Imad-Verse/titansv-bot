@@ -5,3 +5,4 @@ requests
 psutil
 browser-cookie3
 rich
+curl-cffi
