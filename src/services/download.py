@@ -1010,14 +1010,13 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         }
         
         if 'shorts' in url.lower():
-            # For Shorts, we prefer best quality
             ydl_opts['format'] = 'bestvideo+bestaudio/best'
         elif quality_type == 'high':
-             ydl_opts['format'] = default_video_format
+             ydl_opts['format'] = 'bestvideo+bestaudio/best'
         elif quality_type == 'medium':
-             ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo+bestaudio/best'
+             ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
         elif quality_type == 'low':
-             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best'
+             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
         elif quality_type == 'audio':
              ydl_opts['format'] = 'bestaudio/best'
              ydl_opts['postprocessors'] = [{
@@ -1026,7 +1025,7 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
                  'preferredquality': '192',
              }]
         else:
-             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+             ydl_opts['format'] = 'best'
     else:
         # Generic fallback for other platforms
         if quality_type == 'high':
@@ -1053,25 +1052,26 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
                     ydl_opts['proxy'] = new_proxy
 
             # محاولات مع استراتيجيات مختلفة
+            if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {'youtube': {}}
+            
             if i == 0:
-                # المحاولة الأولى: استخدام عملاء الهواتف المحمولة (أكثر استقراراً أحياناً)
-                if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {}
-                if 'youtube' not in ydl_opts['extractor_args']: ydl_opts['extractor_args']['youtube'] = {}
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'ios', 'mweb']
+                # المحاولة الأولى: استخدام عميل الويب مع الكوكيز (لأن الكوكيز غالباً من متصفح ويب)
+                # إذا لم تنجح، سنغير العميل
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['web', 'android']
             
             elif i == 1:
-                # المحاولة الثانية: تبسيط الصيغة والتركيز على mweb
-                logger.info("YouTube Retry 2: Trying simplified format and mobile client")
+                # المحاولة الثانية: التركيز على عملاء الهواتف المحمولة
+                logger.info("YouTube Retry 2: Trying mobile clients (ios, mweb)")
                 ydl_opts['format'] = 'bestvideo+bestaudio/best'
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['mweb', 'ios']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb', 'android']
                 
             elif i == 2:
                 # المحاولة الثالثة: الخيار النووي - بدون كوكيز وبأقل جودة
-                logger.info("YouTube Retry 3: Clearing cookies as last resort")
+                logger.info("YouTube Retry 3: Clearing cookies and trying android client")
                 if 'cookiefile' in ydl_opts:
                     del ydl_opts['cookiefile']
                 ydl_opts['format'] = 'best'
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['mweb']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'mweb']
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
