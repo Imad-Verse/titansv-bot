@@ -135,8 +135,33 @@ def get_cookies_path(platform):
     """جلب مسار ملف الكوكيز بناءً على اسم المنصة"""
     path = Config.COOKIES_FILES.get(platform)
     if path and path.exists():
-        return str(path)
+        if validate_cookies_file(str(path)):
+            return str(path)
     return None
+
+def validate_cookies_file(path):
+    """التحقق من أن ملف الكوكيز يحتوي على الترويسة الصحيحة وإضافتها إذا لزم الأمر"""
+    if not path or not os.path.exists(path):
+        return False
+    try:
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            first_line = f.readline()
+        
+        if first_line and '# Netscape' in first_line:
+            return True
+        
+        # إذا كانت الترويسة مفقودة، نضيفها
+        logger.warning(f"⚠️ Cookie file {os.path.basename(path)} is missing Netscape header. Fixing it...")
+        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+        
+        header = "# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n"
+        with open(path, 'w', encoding='utf-8') as f:
+            f.write(header + content)
+        return True
+    except Exception as e:
+        logger.error(f"Error validating cookies file {path}: {e}")
+        return False
 
 def get_cookies_file(url):
     """تحديد ملف الكوكيز المناسب للرابط المعطى"""
@@ -146,23 +171,19 @@ def get_cookies_file(url):
     except Exception:
         host = ""
 
-    # سجل تتبع لمعرفة الرابط الذي يتم فحصه
-    logger.info(f"Checking cookies for host: {host}")
-
     for domain, platform in Config.COOKIES_MAP.items():
         if host == domain or host.endswith(f".{domain}"):
             cookie_path = Config.COOKIES_FILES.get(platform)
             
-            # سجل تتبع لمعرفة المسار الذي يبحث فيه البوت
-            if cookie_path:
-                if cookie_path.exists():
+            if cookie_path and cookie_path.exists():
+                if validate_cookies_file(str(cookie_path)):
                     if cookie_path.stat().st_size > 0:
                         logger.info(f"Cookie file FOUND and ACTIVE: {cookie_path}")
                         return cookie_path
                     else:
                         logger.error(f"Cookie file found but is EMPTY: {cookie_path}")
                 else:
-                    logger.info(f"Cookie file NOT FOUND at: {cookie_path}")
+                    logger.error(f"Cookie file found but is INVALID: {cookie_path}")
             
     return None
 
