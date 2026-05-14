@@ -1010,14 +1010,14 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         }
         
         if 'shorts' in url.lower():
-            # For Shorts, we try to get the best combined format first
+            # For Shorts, we prefer best quality
             ydl_opts['format'] = 'bestvideo+bestaudio/best'
         elif quality_type == 'high':
              ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
-             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+             ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/bestvideo+bestaudio/best'
         elif quality_type == 'low':
-             ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/bestvideo+bestaudio/best'
         elif quality_type == 'audio':
              ydl_opts['format'] = 'bestaudio/best'
              ydl_opts['postprocessors'] = [{
@@ -1026,7 +1026,7 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
                  'preferredquality': '192',
              }]
         else:
-             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]'
+             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
     else:
         # Generic fallback for other platforms
         if quality_type == 'high':
