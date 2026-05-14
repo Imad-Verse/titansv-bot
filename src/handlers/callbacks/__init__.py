@@ -133,20 +133,7 @@ def callback_query(call):
                  parse_mode="HTML"
              )
 
-    elif call.data.startswith('playlist_'):
-        try:
-            from src.services.download import process_playlist
-            sid = call.data.split('_', 1)[1]
-            
-            try: bot.delete_message(call.message.chat.id, call.message.message_id)
-            except: pass
-            
-            # Start playlist processing directly (doesn't block for long since it just extracts and queues)
-            import threading
-            threading.Thread(target=process_playlist, args=(call.message, sid)).start()
-        except Exception as e:
-            logger.error(f"Playlist callback error: {e}")
-            bot.answer_callback_query(call.id, "حدث خطأ.", show_alert=True)
+
 
     elif call.data.startswith(('audio_', 'mute_')):
         try:

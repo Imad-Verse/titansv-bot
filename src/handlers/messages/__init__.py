@@ -106,9 +106,7 @@ def handle_urls(message):
                 # إضافة خيار الصوت
                 markup.row(types.InlineKeyboardButton("🎵 تحميل صوت فقط (MP3)", callback_data=f"audio_{s}"))
                 
-                # إضافة خيار القائمة إذا كانت قائمة
-                if info.get('is_playlist'):
-                    markup.row(types.InlineKeyboardButton("📂 تحميل القائمة كاملة", callback_data=f"playlist_{s}"))
+
 
             # تحديث الرسالة بالخيارات الجديدة
             try:

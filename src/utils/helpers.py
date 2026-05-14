@@ -51,7 +51,7 @@ def clean_url(url):
         parsed = urlparse(url)
         # المعلمات التي نريد الإبقاء عليها لكل منصة
         keep_params = {
-            'youtube.com': ['v', 'list', 'index', 't'],
+            'youtube.com': ['v', 't'],
             'youtu.be': ['t'],
         }
         

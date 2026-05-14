@@ -997,6 +997,18 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         # YouTube specific optimizations
         ydl_opts['referer'] = 'https://www.youtube.com/'
         
+        # Enforce no playlist strictly
+        ydl_opts['noplaylist'] = True
+        ydl_opts['extract_flat'] = False
+        
+        # Add extractor args to bypass some detections
+        ydl_opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android', 'web'],
+                'skip': ['hls', 'dash']
+            }
+        }
+        
         if 'shorts' in url.lower():
             # For Shorts, we try to get the best combined format first
             ydl_opts['format'] = 'bestvideo+bestaudio/best'
@@ -1015,7 +1027,6 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
              }]
         else:
              ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]'
-        ydl_opts['noplaylist'] = True
     else:
         # Generic fallback for other platforms
         if quality_type == 'high':
@@ -1031,7 +1042,6 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
 def youtube_safe_download(url, ydl_opts, max_retries=3):
     """تحميل آمن من يوتيوب مع محاولات متعددة واستراتيجية التراجع والبروكسي"""
     from src.core.proxy_manager import proxy_manager
-    original_format = ydl_opts.get('format')
     
     for i in range(max_retries):
         try:
@@ -1045,14 +1055,23 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
             # محاولات مع استراتيجيات مختلفة
             if i == 1:
                 # المحاولة الثانية: تغيير الصيغة إلى صيغة مدمجة أكثر استقراراً
-                logger.info("YouTube Retry 2: Trying stable 'best' format")
+                logger.info("YouTube Retry 2: Trying stable 'best' format and different client")
                 ydl_opts['format'] = 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best'
+                
+                if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {}
+                if 'youtube' not in ydl_opts['extractor_args']: ydl_opts['extractor_args']['youtube'] = {}
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['web', 'ios']
+                
             elif i == 2:
-                # المحاولة الثالثة: الخيار النووي - بدون كوكيز وبأقل جودة (أحياناً الكوكيز المحظورة تسبب مشكلة)
+                # المحاولة الثالثة: الخيار النووي - بدون كوكيز وبأقل جودة
                 logger.info("YouTube Retry 3: Clearing cookies as last resort")
                 if 'cookiefile' in ydl_opts:
                     del ydl_opts['cookiefile']
                 ydl_opts['format'] = 'best'
+                
+                if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {}
+                if 'youtube' not in ydl_opts['extractor_args']: ydl_opts['extractor_args']['youtube'] = {}
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['mweb']
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -1258,7 +1277,6 @@ def extract_media_info(url, cookies_file=None):
                 'duration': info.get('duration'),
                 'thumbnail': info.get('thumbnail'),
                 'resolutions': sorted(filtered_res, reverse=True),
-                'is_playlist': 'entries' in info or 'list=' in url or 'playlist' in url,
                 'platform': detect_platform_from_url(url),
                 'info': info # نمرر الـ info بالكامل لاستخدامه لاحقاً إذا لزم الأمر
             }
@@ -2131,63 +2149,4 @@ def perform_specific_broadcast(message, target_user_id):
         logger.error(f"Specific Broadcast Error: {e}")
         bot.reply_to(message, "❌ تعذر تجهيز رسالة الإذاعة لهذا المستخدم.")
 
-def process_playlist(message, sid):
-    """استخراج عناصر قائمة التشغيل وإضافتها إلى طابور التحميل بشكل منفصل"""
-    from src.core.loader import download_queue, bot
-    uid = message.from_user.id
-    url = get_url_by_sid(sid)
-    if not url:
-        bot.send_message(message.chat.id, translation_system.get(uid, 'invalid_link'))
-        return
 
-    # إعلام المستخدم ببدء المعالجة
-    msg = bot.send_message(message.chat.id, "🔄 جاري جلب بيانات القائمة، يرجى الانتظار...", parse_mode="HTML")
-    
-    # استخدام yt-dlp لاستخراج القائمة بدون تحميل
-    ydl_opts = {
-        'quiet': True,
-        'extract_flat': True,
-        'no_warnings': True,
-        'nocheckcertificate': True
-    }
-    
-    try:
-        import yt_dlp
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            
-        if 'entries' not in info:
-            bot.edit_message_text("❌ لم يتم العثور على قائمة تشغيل في هذا الرابط.", message.chat.id, msg.message_id)
-            return
-            
-        entries = list(info['entries'])
-        valid_entries = [e for e in entries if e.get('url') or e.get('id')]
-        
-        if not valid_entries:
-            bot.edit_message_text("❌ القائمة فارغة أو غير متاحة.", message.chat.id, msg.message_id)
-            return
-            
-        bot.edit_message_text(f"✅ تم العثور على <b>{len(valid_entries)}</b> فيديو في القائمة.\n⏳ جاري إضافتها إلى طابور التحميل الخاص بك...", message.chat.id, msg.message_id, parse_mode="HTML")
-        
-        added_count = 0
-        for entry in valid_entries:
-            video_url = entry.get('url')
-            if not video_url and entry.get('id'):
-                # Fallback for YouTube if URL is missing
-                video_url = f"https://www.youtube.com/watch?v={entry.get('id')}"
-            
-            if not video_url:
-                continue
-            
-            # محاكاة رسالة جديدة لكل فيديو
-            dummy_message = type('DummyMessage', (), {'chat': message.chat, 'from_user': message.from_user, 'message_id': message.message_id, 'text': video_url})()
-            
-            # إرسال للطابور بجودة افتراضية
-            download_queue.submit(uid, message.chat.id, message.message_id, process_download, dummy_message, 'high', url=video_url)
-            added_count += 1
-            
-        bot.send_message(message.chat.id, f"🎉 تم إضافة <b>{added_count}</b> فيديو بنجاح إلى طابور التحميل.\nسيتم إرسالها لك تباعاً.", parse_mode="HTML")
-        
-    except Exception as e:
-        logger.error(f"Playlist Error: {e}")
-        bot.edit_message_text(translation_system.get(uid, 'request_processing_failed'), message.chat.id, msg.message_id)
