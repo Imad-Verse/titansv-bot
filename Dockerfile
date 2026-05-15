@@ -14,6 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     procps \
     build-essential \
     python3-dev \
+    libcurl4-openssl-dev \
+    libssl-dev \
     && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
     && apt-get install -y nodejs \
     && apt-get clean \

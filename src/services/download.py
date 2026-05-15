@@ -1,6 +1,7 @@
 import os
 import time
 import threading
+import subprocess
 import yt_dlp
 import requests
 from urllib.parse import urlparse
@@ -294,8 +295,9 @@ def process_download(message, quality_type, url=None):
         # Direct URL Upload Strategy
         if platform in ['tiktok', 'instagram'] and quality_type not in ['audio', 'mute']:
             try:
-                from src.core.proxy_manager import proxy_manager
-                with yt_dlp.YoutubeDL({'quiet': True, 'no_warnings': True, 'cookiefile': cookies_file, 'format': 'best', 'proxy': proxy_manager.get_proxy()}) as ydl:
+                direct_opts = get_ydl_opts_for_platform(source_url, 'best', cookies_file=cookies_file)
+                direct_opts['skip_download'] = True
+                with yt_dlp.YoutubeDL(direct_opts) as ydl:
                     info = ydl.extract_info(source_url, download=False)
                     direct_url, size = info.get('url'), info.get('filesize') or info.get('filesize_approx') or 0
                     if direct_url and 0 < size < (20 * 1024 * 1024):

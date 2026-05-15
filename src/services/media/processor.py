@@ -38,12 +38,12 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
     if platform == 'instagram':
         ydl_opts['extractor_args'] = {
             'instagram': {
-                'api_request': 'ios',
                 'include_reels': True,
-                'include_stories': True
+                'include_stories': True,
+                'check_formats': True
             }
         }
-        ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
 
     # معالجة الجودات الرقمية (Dynamic Quality)
     if str(quality_type).isdigit():
@@ -92,11 +92,17 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         ydl_opts['extract_flat'] = False
         ydl_opts['extractor_args'] = {
             'youtube': {
-                'player_client': ['android', 'web'],
-                'skip': ['hls', 'dash']
+                'player_client': ['android', 'ios', 'web', 'mweb'],
+                'skip': ['dash', 'hls']
             }
         }
-        ydl_opts['impersonate'] = 'chrome'
+        
+        # Check if curl-cffi is available for impersonation
+        try:
+            import curl_cffi
+            ydl_opts['impersonate'] = 'chrome'
+        except ImportError:
+            logger.warning("⚠️ curl-cffi not found. Impersonation disabled.")
         
         if 'shorts' in url.lower():
             ydl_opts['format'] = 'bestvideo+bestaudio/best'
@@ -143,16 +149,18 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
             if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {'youtube': {}}
             
             if i == 0:
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['web', 'android']
-                ydl_opts['impersonate'] = 'chrome'
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'web']
             elif i == 1:
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb', 'android']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb']
                 ydl_opts['referer'] = 'https://www.google.com/'
-                ydl_opts['impersonate'] = 'safari'
+                try:
+                    import curl_cffi
+                    ydl_opts['impersonate'] = 'safari'
+                except ImportError: pass
             elif i == 2:
                 if 'cookiefile' in ydl_opts: del ydl_opts['cookiefile']
                 ydl_opts['format'] = 'best'
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['android']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'tv']
                 if 'impersonate' in ydl_opts: del ydl_opts['impersonate']
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
