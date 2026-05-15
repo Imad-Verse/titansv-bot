@@ -138,30 +138,35 @@ def get_cookies_path(platform):
         if validate_cookies_file(str(path)):
             return str(path)
     return None
-
 def validate_cookies_file(path):
-    """التحقق من أن ملف الكوكيز يحتوي على الترويسة الصحيحة وإضافتها إذا لزم الأمر"""
+    """التحقق من أن ملف الكوكيز يحتوي على الترويسة الصحيحة وإزالة BOM إذا وُجد"""
     if not path or not os.path.exists(path):
         return False
     try:
-        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-            first_line = f.readline()
+        # Read content and handle potential BOM using utf-8-sig
+        with open(path, 'r', encoding='utf-8-sig', errors='ignore') as f:
+            content = f.read().strip()
         
-        if first_line and '# Netscape' in first_line:
+        if not content:
+            return False
+
+        header = "# Netscape HTTP Cookie File"
+        if content.startswith(header):
+            # Content is fine, but let's rewrite it without BOM to be safe for yt-dlp
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(content + "\n")
             return True
         
-        # إذا كانت الترويسة مفقودة، نضيفها
+        # If header missing, add it
         logger.warning(f"⚠️ Cookie file {os.path.basename(path)} is missing Netscape header. Fixing it...")
-        with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-        
-        header = "# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n"
+        full_header = "# Netscape HTTP Cookie File\n# http://curl.haxx.se/rfc/cookie_spec.html\n# This is a generated file!  Do not edit.\n\n"
         with open(path, 'w', encoding='utf-8') as f:
-            f.write(header + content)
+            f.write(full_header + content + "\n")
         return True
     except Exception as e:
         logger.error(f"Error validating cookies file {path}: {e}")
         return False
+
 
 def get_cookies_file(url):
     """تحديد ملف الكوكيز المناسب للرابط المعطى"""

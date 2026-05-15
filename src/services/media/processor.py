@@ -98,11 +98,12 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         }
         
         # Check if curl-cffi is available for impersonation
+        # We try to use it but we'll fallback in retries if it fails
         try:
             import curl_cffi
             ydl_opts['impersonate'] = 'chrome'
         except ImportError:
-            logger.warning("⚠️ curl-cffi not found. Impersonation disabled.")
+            pass
         
         if 'shorts' in url.lower():
             ydl_opts['format'] = 'bestvideo+bestaudio/best'
@@ -150,17 +151,18 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
             
             if i == 0:
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'web']
+                if 'impersonate' in ydl_opts: del ydl_opts['impersonate'] # Try without impersonate first
             elif i == 1:
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb', 'android']
                 ydl_opts['referer'] = 'https://www.google.com/'
                 try:
                     import curl_cffi
-                    ydl_opts['impersonate'] = 'safari'
+                    ydl_opts['impersonate'] = 'chrome'
                 except ImportError: pass
             elif i == 2:
                 if 'cookiefile' in ydl_opts: del ydl_opts['cookiefile']
                 ydl_opts['format'] = 'best'
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'tv']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['tv', 'android']
                 if 'impersonate' in ydl_opts: del ydl_opts['impersonate']
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -199,6 +201,13 @@ def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
                 
             if i == 0 and 'cookiefile' in ydl_opts:
                 del ydl_opts['cookiefile']
+            
+            # For Instagram/YouTube, if it keeps failing, try WITHOUT proxy
+            if i == 1 and platform in ['instagram', 'youtube']:
+                if 'proxy' in ydl_opts:
+                    logger.info(f"🔄 Try {i+1} WITHOUT proxy for {platform}")
+                    del ydl_opts['proxy']
+
             time.sleep(2)
             if i == max_retries - 1:
                 raise e
