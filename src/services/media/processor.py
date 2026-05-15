@@ -22,9 +22,11 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
     if cookies_file:
         ydl_opts['cookiefile'] = str(cookies_file)
 
-    platform = detect_platform_from_url(url)
+    # تحديد المنصة مبكراً
+    platform_name = detect_platform_from_url(url)
+    
     from src.core.proxy_manager import proxy_manager
-    proxy = proxy_manager.get_proxy(platform=platform)
+    proxy = proxy_manager.get_proxy(platform=platform_name)
     if proxy:
         ydl_opts['proxy'] = proxy
 
@@ -32,10 +34,10 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
 
     # Apply shared defaults
     ydl_opts['noplaylist'] = True
-    if platform in ['instagram', 'tiktok']:
+    if platform_name in ['instagram', 'tiktok']:
         ydl_opts['noplaylist'] = False # السماح بتحميل الألبومات
         
-    if platform == 'instagram':
+    if platform_name == 'instagram':
         ydl_opts['extractor_args'] = {
             'instagram': {
                 'include_reels': True,
@@ -73,11 +75,11 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
     else:
         default_video_format = 'best[vcodec!=none][acodec!=none]/best'
 
-    if platform == 'instagram':
+    if platform_name == 'instagram':
         ydl_opts['format'] = default_video_format if ffmpeg_available else 'best'
-    elif platform == 'tiktok':
+    elif platform_name == 'tiktok':
         ydl_opts['noplaylist'] = False
-    elif platform == 'facebook':
+    elif platform_name == 'facebook':
         if quality_type == 'high':
             ydl_opts['format'] = 'bestvideo+bestaudio/best'
         elif quality_type == 'medium':
@@ -86,7 +88,7 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
             ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360]/best'
         else:
             ydl_opts['format'] = 'best'
-    elif platform == 'youtube':
+    elif platform_name == 'youtube':
         ydl_opts['referer'] = 'https://www.youtube.com/'
         ydl_opts['noplaylist'] = True
         ydl_opts['extract_flat'] = False
@@ -98,7 +100,6 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         }
         
         # Check if curl-cffi is available for impersonation
-        # We try to use it but we'll fallback in retries if it fails
         try:
             import curl_cffi
             ydl_opts['impersonate'] = 'chrome'
@@ -157,7 +158,7 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
                 ydl_opts['referer'] = 'https://www.google.com/'
                 if 'cookiefile' in ydl_opts: 
                     logger.info("🔄 Retrying YouTube WITHOUT cookies...")
-                    del ydl_opts['cookiefile'] # Try without cookies if they might be flagged
+                    del ydl_opts['cookiefile']
             elif i == 2:
                 ydl_opts['format'] = 'best'
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['tv', 'android']
@@ -179,13 +180,13 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
 
 def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
     from src.core.proxy_manager import proxy_manager
-    from src.core.utils import detect_platform_from_url
-    platform = detect_platform_from_url(url)
+    # Use a local variable name that doesn't conflict or get shadowed
+    this_platform = detect_platform_from_url(url)
     
     for i in range(max_retries):
         try:
             if i > 0:
-                new_proxy = proxy_manager.get_proxy(platform=platform)
+                new_proxy = proxy_manager.get_proxy(platform=this_platform)
                 if new_proxy:
                     logger.info(f"🔄 Retrying with new proxy: {new_proxy}")
                     ydl_opts['proxy'] = new_proxy
@@ -199,15 +200,15 @@ def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
             logger.warning(f"Download Try {i+1} failed: {e}")
             current_proxy = ydl_opts.get('proxy')
             if current_proxy:
-                proxy_manager.report_failure(current_proxy, platform=platform)
+                proxy_manager.report_failure(current_proxy, platform=this_platform)
                 
             if i == 0 and 'cookiefile' in ydl_opts:
                 del ydl_opts['cookiefile']
             
-            # For Instagram/YouTube, if it keeps failing, try WITHOUT proxy early
-            if i == 0 and platform in ['instagram', 'youtube']:
+            # Try WITHOUT proxy early if it keeps failing
+            if i == 0 and this_platform in ['instagram', 'youtube']:
                 if 'proxy' in ydl_opts:
-                    logger.info(f"🔄 Try {i+1} WITHOUT proxy for {platform}")
+                    logger.info(f"🔄 Try {i+1} WITHOUT proxy for {this_platform}")
                     del ydl_opts['proxy']
 
             time.sleep(2)

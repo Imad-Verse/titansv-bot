@@ -244,6 +244,7 @@ def process_download(message, quality_type, url=None):
     uid = message.from_user.id
     time.sleep(0.5)
     progress_msg = None
+    platform = 'other' # Initialize to avoid UnboundLocalError
     try:
         sid = sanitize_filename(generate_sid())
         source_url = url if url else message.text
@@ -415,10 +416,10 @@ def process_download(message, quality_type, url=None):
                     return
                 if os.path.exists(file_path): os.remove(file_path)
                 file_path = mute_path
-
-            # Check if splitting is needed (if file > 2GB or whatever the limit is)
+            
+            # Check if splitting is needed
             limit_mb = Config.TELEGRAM_UPLOAD_LIMIT_MB
-            files_to_upload = split_large_file(file_path, max_size_mb=limit_mb - 50) # 50MB safety margin
+            files_to_upload = split_large_file(file_path, max_size_mb=limit_mb - 50)
             
             for i, fp in enumerate(files_to_upload):
                 part_caption = caption
@@ -430,19 +431,13 @@ def process_download(message, quality_type, url=None):
                     try:
                         markup = video_markup(sid, uid) if (quality_type != 'mute' and i == 0) else None
                         current_size_mb = os.path.getsize(fp) / (1024 * 1024)
-                        
                         if current_size_mb > Config.DOCUMENT_THRESHOLD_MB:
                             sent_msg = bot.send_document(message.chat.id, v, caption=part_caption, parse_mode="HTML", thumb=t, timeout=600, reply_markup=markup)
-                            if sent_msg and sent_msg.document: save_to_cache(source_url, quality_type, sent_msg.document.file_id, title=video_title, description=video_description, platform=platform, size_mb=file_size_mb, duration=duration)
                         else:
                             sent_msg = bot.send_video(message.chat.id, v, caption=part_caption, parse_mode="HTML", timeout=500, supports_streaming=True, thumb=t, reply_markup=markup)
-                            if sent_msg and sent_msg.video: save_to_cache(source_url, quality_type, sent_msg.video.file_id, title=video_title, description=video_description, platform=platform, size_mb=file_size_mb, duration=duration)
                     finally:
                         if t: t.close()
-                
-                # If we split it, we might want to delete parts as we go, but let's keep them for 10 min
-                if len(files_to_upload) > 1:
-                    delayed_delete(fp, delay=600)
+                if len(files_to_upload) > 1: delayed_delete(fp, delay=600)
         
         _delete_progress_message(message.chat.id, progress_msg)
         delayed_delete(file_path, delay=600)
@@ -517,4 +512,3 @@ def process_local_conversion(message, sid, conversion_type):
         try: bot.delete_message(message.chat.id, msg.message_id)
         except: pass
         process_download(message, conversion_type, url=get_url_by_sid(sid))
-
