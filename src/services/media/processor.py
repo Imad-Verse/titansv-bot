@@ -178,11 +178,13 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
 
 def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
     from src.core.proxy_manager import proxy_manager
+    from src.core.utils import detect_platform_from_url
+    platform = detect_platform_from_url(url)
     
     for i in range(max_retries):
         try:
             if i > 0:
-                new_proxy = proxy_manager.get_proxy()
+                new_proxy = proxy_manager.get_proxy(platform=platform)
                 if new_proxy:
                     logger.info(f"🔄 Retrying with new proxy: {new_proxy}")
                     ydl_opts['proxy'] = new_proxy
@@ -196,14 +198,13 @@ def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
             logger.warning(f"Download Try {i+1} failed: {e}")
             current_proxy = ydl_opts.get('proxy')
             if current_proxy:
-                platform = detect_platform_from_url(url)
                 proxy_manager.report_failure(current_proxy, platform=platform)
                 
             if i == 0 and 'cookiefile' in ydl_opts:
                 del ydl_opts['cookiefile']
             
-            # For Instagram/YouTube, if it keeps failing, try WITHOUT proxy
-            if i == 1 and platform in ['instagram', 'youtube']:
+            # For Instagram/YouTube, if it keeps failing, try WITHOUT proxy early
+            if i == 0 and platform in ['instagram', 'youtube']:
                 if 'proxy' in ydl_opts:
                     logger.info(f"🔄 Try {i+1} WITHOUT proxy for {platform}")
                     del ydl_opts['proxy']
