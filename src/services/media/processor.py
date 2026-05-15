@@ -151,19 +151,20 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
             
             if i == 0:
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'web']
-                if 'impersonate' in ydl_opts: del ydl_opts['impersonate'] # Try without impersonate first
+                if 'impersonate' in ydl_opts: del ydl_opts['impersonate']
             elif i == 1:
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb', 'android']
                 ydl_opts['referer'] = 'https://www.google.com/'
+                if 'cookiefile' in ydl_opts: 
+                    logger.info("🔄 Retrying YouTube WITHOUT cookies...")
+                    del ydl_opts['cookiefile'] # Try without cookies if they might be flagged
+            elif i == 2:
+                ydl_opts['format'] = 'best'
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['tv', 'android']
                 try:
                     import curl_cffi
                     ydl_opts['impersonate'] = 'chrome'
                 except ImportError: pass
-            elif i == 2:
-                if 'cookiefile' in ydl_opts: del ydl_opts['cookiefile']
-                ydl_opts['format'] = 'best'
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['tv', 'android']
-                if 'impersonate' in ydl_opts: del ydl_opts['impersonate']
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
