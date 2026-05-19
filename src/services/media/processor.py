@@ -14,7 +14,6 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         'geo_bypass': True,
         'ignoreerrors': False,
         'socket_timeout': 30,
-        'source_address': '0.0.0.0',
         'max_filesize': Config.MAX_FILE_SIZE,
         'merge_output_format': 'mp4',
     }
@@ -102,7 +101,8 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         # Check if curl-cffi is available for impersonation
         try:
             import curl_cffi
-            ydl_opts['impersonate'] = 'chrome'
+            from yt_dlp.networking.impersonate import ImpersonateTarget
+            ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
         except ImportError:
             pass
         
@@ -150,22 +150,25 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
 
             if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {'youtube': {}}
             
+            # Ensure impersonate is active if curl-cffi is available
+            try:
+                import curl_cffi
+                from yt_dlp.networking.impersonate import ImpersonateTarget
+                ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
+            except ImportError:
+                pass
+
             if i == 0:
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'web']
-                if 'impersonate' in ydl_opts: del ydl_opts['impersonate']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'web', 'mweb']
             elif i == 1:
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'mweb', 'android']
+                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'web', 'ios']
                 ydl_opts['referer'] = 'https://www.google.com/'
-                if 'cookiefile' in ydl_opts: 
-                    logger.info("🔄 Retrying YouTube WITHOUT cookies...")
-                    del ydl_opts['cookiefile']
             elif i == 2:
                 ydl_opts['format'] = 'best'
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['tv', 'android']
-                try:
-                    import curl_cffi
-                    ydl_opts['impersonate'] = 'chrome'
-                except ImportError: pass
+                if 'cookiefile' in ydl_opts: 
+                    logger.info("🔄 Retrying YouTube WITHOUT cookies as a last resort...")
+                    del ydl_opts['cookiefile']
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
@@ -202,7 +205,11 @@ def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
             if current_proxy:
                 proxy_manager.report_failure(current_proxy, platform=this_platform)
                 
-            if i == 0 and 'cookiefile' in ydl_opts:
+            # Only delete cookies early if NOT Instagram, since Instagram strictly requires cookies
+            if i == 0 and this_platform != 'instagram' and 'cookiefile' in ydl_opts:
+                del ydl_opts['cookiefile']
+            elif i == 1 and this_platform == 'instagram' and 'cookiefile' in ydl_opts:
+                logger.info("🔄 Instagram retry: Dropping cookies as a last resort...")
                 del ydl_opts['cookiefile']
             
             # Try WITHOUT proxy early if it keeps failing
