@@ -98,34 +98,45 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
             }
         }
         
-        # Check if curl-cffi is available for impersonation
+        # Check if curl-cffi is available and compatible for impersonation
         try:
             import curl_cffi
+            # Ensure yt-dlp's internal curl-cffi handler is fully compatible
+            import yt_dlp.networking._curlcffi
+            
             from yt_dlp.networking.impersonate import ImpersonateTarget
             ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
         except ImportError:
-            pass
+            ydl_opts.pop('impersonate', None)
         
-        if 'shorts' in url.lower():
-            ydl_opts['format'] = 'bestvideo+bestaudio/best'
-        elif quality_type == 'high':
-             ydl_opts['format'] = 'bestvideo+bestaudio/best'
-        elif quality_type == 'medium':
-             ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
-        elif quality_type == 'low':
-             ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+        if not ffmpeg_available:
+            if 'shorts' in url.lower() or quality_type == 'high':
+                ydl_opts['format'] = 'best'
+            elif quality_type == 'medium':
+                ydl_opts['format'] = 'best[height<=720]/best'
+            elif quality_type == 'low':
+                ydl_opts['format'] = 'best[height<=480]/best'
+            else:
+                ydl_opts['format'] = 'best'
         else:
-             ydl_opts['format'] = 'best'
-             
+            if 'shorts' in url.lower() or quality_type == 'high':
+                ydl_opts['format'] = 'bestvideo+bestaudio/best'
+            elif quality_type == 'medium':
+                ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
+            elif quality_type == 'low':
+                ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+            else:
+                ydl_opts['format'] = 'best'
+              
         ydl_opts['quiet'] = False
         ydl_opts['no_warnings'] = False
     else:
         if quality_type == 'high':
             ydl_opts['format'] = default_video_format
         elif quality_type == 'medium':
-            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best' if ffmpeg_available else 'best[height<=480]/best'
         elif quality_type == 'low':
-            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best'
+            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best' if ffmpeg_available else 'best[height<=360]/best'
         ydl_opts['noplaylist'] = True
     
     return ydl_opts
@@ -147,34 +158,49 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
                 if new_proxy:
                     logger.info(f"🔄 YouTube Retry {i+1} with new proxy: {new_proxy}")
                     ydl_opts['proxy'] = new_proxy
+                else:
+                    ydl_opts.pop('proxy', None)
 
             if 'extractor_args' not in ydl_opts: ydl_opts['extractor_args'] = {'youtube': {}}
             
-            # Ensure impersonate is active if curl-cffi is available
+            # Ensure impersonate is active if curl-cffi is available and compatible
             try:
                 import curl_cffi
+                # Ensure yt-dlp's internal curl-cffi handler is fully compatible
+                import yt_dlp.networking._curlcffi
+                
                 from yt_dlp.networking.impersonate import ImpersonateTarget
                 ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
             except ImportError:
-                pass
+                ydl_opts.pop('impersonate', None)
 
             if i == 0:
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'web', 'mweb']
             elif i == 1:
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'web', 'ios']
                 ydl_opts['referer'] = 'https://www.google.com/'
+                # Try WITHOUT proxy early if retry 1 fails!
+                if 'proxy' in ydl_opts:
+                    logger.info("🔄 Retrying YouTube WITHOUT proxy...")
+                    ydl_opts.pop('proxy', None)
             elif i == 2:
                 ydl_opts['format'] = 'best'
                 ydl_opts['extractor_args']['youtube']['player_client'] = ['tv', 'android']
                 if 'cookiefile' in ydl_opts: 
                     logger.info("🔄 Retrying YouTube WITHOUT cookies as a last resort...")
-                    del ydl_opts['cookiefile']
+                    ydl_opts.pop('cookiefile', None)
+                if 'proxy' in ydl_opts:
+                    logger.info("🔄 Retrying YouTube WITHOUT proxy as a last resort...")
+                    ydl_opts.pop('proxy', None)
 
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
                 return info
         except Exception as e:
             logger.warning(f"YouTube Try {i+1} failed: {e}")
+            if 'impersonate' in ydl_opts and ('impersonate' in str(e).lower() or 'impersonating' in str(e).lower()):
+                logger.warning("⚠️ Impersonation error detected! Stripping 'impersonate' option and retrying...")
+                ydl_opts.pop('impersonate', None)
             if i < max_retries - 1:
                 time.sleep(i * 5 + 5)
             else:
@@ -201,6 +227,9 @@ def enhanced_download_with_fallback(ydl_opts, url, max_retries=3):
                 return info
         except Exception as e:
             logger.warning(f"Download Try {i+1} failed: {e}")
+            if 'impersonate' in ydl_opts and ('impersonate' in str(e).lower() or 'impersonating' in str(e).lower()):
+                logger.warning("⚠️ Impersonation error detected! Stripping 'impersonate' option and retrying...")
+                ydl_opts.pop('impersonate', None)
             current_proxy = ydl_opts.get('proxy')
             if current_proxy:
                 proxy_manager.report_failure(current_proxy, platform=this_platform)

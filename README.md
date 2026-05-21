@@ -16,7 +16,7 @@ A professional Telegram bot for downloading high-quality videos and audio from v
 ## 🏗 Project Structure
 
 ```text
-TitanSv_bot/
+titansv-bot/
 ├── data/               # SQLite database and backups
 ├── logs/               # Bot and system logs
 ├── cookies/            # Cookies for platform authentication
@@ -35,7 +35,7 @@ TitanSv_bot/
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd TitanSv_bot
+   cd titansv-bot
    ```
 
 2. **Install dependencies**:
