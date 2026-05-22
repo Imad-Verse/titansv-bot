@@ -1,157 +1,101 @@
-# Byte-compiled / optimized / DLL files
+# ==============================================================================
+#                 Professional GitIgnore for TitanSV Bot
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Environments & Sensitive Configs (CRITICAL Security)
+# ------------------------------------------------------------------------------
+.env
+.env.*
+*.env
+*.env.json
+env.bak/
+venv.bak/
+instance/
+config/config.json
+secrets/
+
+# ------------------------------------------------------------------------------
+# 2. Cookies & Sessions (CRITICAL Security)
+# ------------------------------------------------------------------------------
+# Ignore all cookie configuration text files to protect active sessions
+cookies/*.txt
+cookies/**/*.txt
+
+# Allow only the extraction script to be committed
+!cookies/extract_cookies.py
+
+# ------------------------------------------------------------------------------
+# 3. Database & Local Storage
+# ------------------------------------------------------------------------------
+# Ignore SQLite/local databases to prevent exposing user data/activity
+data/*.db
+data/**/*.db
+data/*.sqlite
+data/*.sqlite3
+data/*.db-journal
+
+# Ignore local database backups
+data/backups/
+
+# Ignore proxy lists (can contain authenticated proxies)
+data/proxies.txt
+
+# ------------------------------------------------------------------------------
+# 4. Downloads, Logs & Temporary Files
+# ------------------------------------------------------------------------------
+downloads/
+logs/
+.titan_runtime/
+tmp_replace.py
+*.tmp
+*.log
+
+# ------------------------------------------------------------------------------
+# 5. Python Compilation & Cache Files
+# ------------------------------------------------------------------------------
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-share/python-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
-
-# PyInstaller
-#  Often these are Python scripts but they can contain executable code
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
+.pytest_cache/
+.mypy_cache/
+.coverage
 htmlcov/
 .tox/
 .nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
-cover/
+build/
+dist/
+*.egg-info/
+.eggs/
 
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# pipenv
-#   According to pypa/pipenv#598, it is recommended to include Pipfile.lock in version control.
-#   However, in case of collaboration, if you want to share the same dependency version:
-#Pipfile.lock
-
-# poetry
-#   Similar to Pipfile.lock, it is generally recommended to include poetry.lock in version control.
-#poetry.lock
-
-# pdm
-#   Similar to Pipfile.lock, it is generally recommended to include pdm.lock in version control.
-#pdm.lock
-
-# PEP 582; used by e.g. github.com/pdm-project/pdm
-__pypackages__/
-
-# Celery stuff
-celerybeat-schedule
-celerybeat.pid
-
-# SageMath parsed files
-*.sage.py
-
-# Environments
-.env
-.venv
-env/
+# ------------------------------------------------------------------------------
+# 6. Virtual Environments
+# ------------------------------------------------------------------------------
 venv/
+.venv/
+env/
 ENV/
-env.bak/
-venv.bak/
 
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# Project Specific
-logs/
-downloads/
-.titan_runtime/
-tmp_replace.py
+# ------------------------------------------------------------------------------
+# 7. OS & IDE System Configuration
+# ------------------------------------------------------------------------------
+# Windows
 desktop.ini
+Thumbs.db
 
-# Allow databases and cookies
-!data/
-data/*
-!data/*.db
-!data/*.sqlite
-!cookies/
-!cookies/**
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
 
+# IDE / Editor Settings (VS Code, PyCharm, Sublime, etc.)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.swp
+*.sublime-project
+*.sublime-workspace
