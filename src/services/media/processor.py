@@ -46,15 +46,7 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         }
         ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
 
-    # معالجة الجودات الرقمية (Dynamic Quality)
-    if str(quality_type).isdigit():
-        h = quality_type
-        if ffmpeg_available:
-            ydl_opts['format'] = f'bestvideo[height<={h}]+bestaudio/best[height<={h}][vcodec!=none][acodec!=none]/best[height<={h}]/best'
-        else:
-            ydl_opts['format'] = f'best[height<={h}]/best'
-        return ydl_opts
-
+    # معالجة الصوت والكتم أولاً
     if quality_type == 'audio':
         ydl_opts['format'] = 'bestaudio/best'
         ydl_opts['postprocessors'] = [{
@@ -68,75 +60,100 @@ def get_ydl_opts_for_platform(url, quality_type='high', output_path=None, cookie
         ydl_opts['format'] = 'bestvideo[ext=mp4]/bestvideo/best'
         return ydl_opts
 
-    # Default format strategy
+    # تحديد الجودة الرقمية إن وجدت
+    requested_height = int(quality_type) if str(quality_type).isdigit() else None
+
+    # صيغة الجودة التلقائية الافتراضية
     if ffmpeg_available:
         default_video_format = 'bestvideo+bestaudio/best[vcodec!=none][acodec!=none]/best'
     else:
         default_video_format = 'best[vcodec!=none][acodec!=none]/best'
 
+    # دالة مساعدة لتركيب الجودة بناءً على الارتفاع المطلوب
+    def get_format_for_height(h):
+        if ffmpeg_available:
+            return f'bestvideo[height<={h}]+bestaudio/best[height<={h}][vcodec!=none][acodec!=none]/best[height<={h}]/best'
+        else:
+            return f'best[height<={h}]/best'
+
+    # تطبيق إعدادات كل منصة
     if platform_name == 'instagram':
-        ydl_opts['format'] = default_video_format if ffmpeg_available else 'best'
+        if requested_height:
+            ydl_opts['format'] = get_format_for_height(requested_height)
+        else:
+            ydl_opts['format'] = default_video_format if ffmpeg_available else 'best'
+            
     elif platform_name == 'tiktok':
         ydl_opts['noplaylist'] = False
-    elif platform_name == 'facebook':
-        if quality_type == 'high':
-            ydl_opts['format'] = 'bestvideo+bestaudio/best'
-        elif quality_type == 'medium':
-            ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
-        elif quality_type == 'low':
-            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360]/best'
+        if requested_height:
+            ydl_opts['format'] = get_format_for_height(requested_height)
         else:
-            ydl_opts['format'] = 'best'
+            ydl_opts['format'] = default_video_format if ffmpeg_available else 'best'
+            
+    elif platform_name == 'facebook':
+        if requested_height:
+            ydl_opts['format'] = get_format_for_height(requested_height)
+        else:
+            if quality_type == 'high':
+                ydl_opts['format'] = 'bestvideo+bestaudio/best'
+            elif quality_type == 'medium':
+                ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+            elif quality_type == 'low':
+                ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360]/best'
+            else:
+                ydl_opts['format'] = 'best'
+                
     elif platform_name == 'youtube':
         ydl_opts['referer'] = 'https://www.youtube.com/'
         ydl_opts['noplaylist'] = True
         ydl_opts['extract_flat'] = False
-        ydl_opts['extractor_args'] = {
-            'youtube': {
-                'player_client': ['android', 'ios', 'web', 'mweb'],
-                'skip': ['dash', 'hls']
-            }
-        }
         
         # Check if curl-cffi is available and compatible for impersonation
         try:
             import curl_cffi
-            # Ensure yt-dlp's internal curl-cffi handler is fully compatible
             import yt_dlp.networking._curlcffi
-            
             from yt_dlp.networking.impersonate import ImpersonateTarget
             ydl_opts['impersonate'] = ImpersonateTarget.from_str('chrome')
         except ImportError:
             ydl_opts.pop('impersonate', None)
         
-        if not ffmpeg_available:
-            if 'shorts' in url.lower() or quality_type == 'high':
-                ydl_opts['format'] = 'best'
-            elif quality_type == 'medium':
-                ydl_opts['format'] = 'best[height<=720]/best'
-            elif quality_type == 'low':
-                ydl_opts['format'] = 'best[height<=480]/best'
-            else:
-                ydl_opts['format'] = 'best'
+        if requested_height:
+            ydl_opts['format'] = get_format_for_height(requested_height)
         else:
-            if 'shorts' in url.lower() or quality_type == 'high':
-                ydl_opts['format'] = 'bestvideo+bestaudio/best'
-            elif quality_type == 'medium':
-                ydl_opts['format'] = 'bestvideo[height<=720]+bestaudio/best[height<=720]/best'
-            elif quality_type == 'low':
-                ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+            if not ffmpeg_available:
+                if 'shorts' in url.lower() or quality_type == 'high':
+                    ydl_opts['format'] = 'best'
+                elif quality_type == 'medium':
+                    ydl_opts['format'] = 'best[height<=480]/best'
+                elif quality_type == 'low':
+                    ydl_opts['format'] = 'best[height<=360]/best'
+                else:
+                    ydl_opts['format'] = 'best'
             else:
-                ydl_opts['format'] = 'best'
+                if 'shorts' in url.lower() or quality_type == 'high':
+                    ydl_opts['format'] = 'bestvideo+bestaudio/best'
+                elif quality_type == 'medium':
+                    ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480]/best'
+                elif quality_type == 'low':
+                    ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360]/best'
+                else:
+                    ydl_opts['format'] = 'best'
               
         ydl_opts['quiet'] = False
         ydl_opts['no_warnings'] = False
+        
     else:
-        if quality_type == 'high':
-            ydl_opts['format'] = default_video_format
-        elif quality_type == 'medium':
-            ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best' if ffmpeg_available else 'best[height<=480]/best'
-        elif quality_type == 'low':
-            ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best' if ffmpeg_available else 'best[height<=360]/best'
+        if requested_height:
+            ydl_opts['format'] = get_format_for_height(requested_height)
+        else:
+            if quality_type == 'high':
+                ydl_opts['format'] = default_video_format
+            elif quality_type == 'medium':
+                ydl_opts['format'] = 'bestvideo[height<=480]+bestaudio/best[height<=480][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best' if ffmpeg_available else 'best[height<=480]/best'
+            elif quality_type == 'low':
+                ydl_opts['format'] = 'bestvideo[height<=360]+bestaudio/best[height<=360][vcodec!=none][acodec!=none]/bestvideo+bestaudio/best' if ffmpeg_available else 'best[height<=360]/best'
+            else:
+                ydl_opts['format'] = default_video_format
         ydl_opts['noplaylist'] = True
     
     return ydl_opts
@@ -175,17 +192,18 @@ def youtube_safe_download(url, ydl_opts, max_retries=3):
                 ydl_opts.pop('impersonate', None)
 
             if i == 0:
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['ios', 'web', 'mweb']
+                pass
             elif i == 1:
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['android', 'web', 'ios']
                 ydl_opts['referer'] = 'https://www.google.com/'
                 # Try WITHOUT proxy early if retry 1 fails!
                 if 'proxy' in ydl_opts:
                     logger.info("🔄 Retrying YouTube WITHOUT proxy...")
                     ydl_opts.pop('proxy', None)
             elif i == 2:
-                ydl_opts['format'] = 'best'
-                ydl_opts['extractor_args']['youtube']['player_client'] = ['tv', 'android']
+                current_fmt = ydl_opts.get('format', '')
+                is_custom_quality = 'height<=' in current_fmt or 'bestvideo+' in current_fmt
+                if not is_custom_quality:
+                    ydl_opts['format'] = 'best'
                 if 'cookiefile' in ydl_opts: 
                     logger.info("🔄 Retrying YouTube WITHOUT cookies as a last resort...")
                     ydl_opts.pop('cookiefile', None)

@@ -103,6 +103,19 @@ def _initialize_ffmpeg():
             Path(r"C:\Program Files\ffmpeg\bin"),
             Path(os.path.expanduser("~")) / "AppData" / "Local" / "ffmpeg" / "bin"
         ]
+        
+        # إضافة مسار المستخدم الحقيقي في حال تم تجاوز USERPROFILE في بيئة التشغيل المعزولة
+        username = None
+        try:
+            username = os.getlogin()
+        except Exception:
+            pass
+        if not username:
+            username = os.environ.get("USERNAME") or os.environ.get("USER")
+            
+        if username:
+            fallbacks.append(Path(fr"C:\Users\{username}\AppData\Local\ffmpeg\bin"))
+            
         for path in fallbacks:
             if (path / "ffmpeg.exe").exists():
                 path_str = str(path)

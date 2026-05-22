@@ -111,7 +111,7 @@ def split_large_file(file_path, max_size_mb=1900):
         return [file_path]
     
     file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-    if file_size_mb <= max_size_mb:
+    if max_size_mb <= 0 or file_size_mb <= max_size_mb:
         return [file_path]
     
     logger.info(f"✂️ Splitting large file: {file_path} ({file_size_mb:.2f} MB)")

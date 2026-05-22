@@ -1,5 +1,6 @@
 from telebot import types
 from src.services.translation import translation_system
+from src.core.config import Config
 
 def get_error_markup(user_id):
     """إنشاء أزرار المساعدة والمراسلة عند حدوث خطأ"""
@@ -14,45 +15,115 @@ def get_error_markup(user_id):
     )
     return markup
 
+
+def _format_size(size_mb):
+    """تنسيق الحجم بشكل مقروء"""
+    if size_mb <= 0:
+        return ""
+    if size_mb >= 1024:
+        return f"~{size_mb/1024:.1f} GB"
+    return f"~{size_mb:.0f} MB"
+
+
+def _find_tier_size(resolutions, tier):
+    """إيجاد الحجم التقريبي لمستوى جودة معين بناءً على الجودات المتوفرة"""
+    if not resolutions:
+        return 0
+    
+    high_size = resolutions[0].get('size_mb', 0)
+    
+    if tier == 'high':
+        return high_size
+    
+    target = 480 if tier == 'medium' else 360
+    
+    # 1. البحث عن جودة قريبة جداً من الارتفاع المستهدف (±40 بكسل)
+    best = None
+    for r in resolutions:
+        h = r.get('height', 0)
+        if abs(h - target) <= 40:
+            best = r
+            break
+            
+    if best:
+        return best.get('size_mb', 0)
+        
+    # 2. إذا لم نجد، نبحث عن أقرب جودة عند أو تحت الارتفاع المستهدف
+    for r in resolutions:
+        h = r.get('height', 0)
+        if h <= target:
+            best = r
+            break
+            
+    if best:
+        return best.get('size_mb', 0)
+        
+    # 3. إذا لم يتوفر الحجم الفعلي لتلك الجودة، نقوم بتقديره نسبةً للجودة العالية المتاحة
+    if high_size > 0:
+        high_height = resolutions[0].get('height', 1080)
+        if high_height > 0:
+            # استخدام نسب البتات التقريبية (H.264 Bitrate ratios) لتقدير الحجم
+            if tier == 'medium':
+                # حوالي 35% من حجم 1080p، أو 50% من حجم 720p
+                factor = 0.35 if high_height >= 1080 else (0.50 if high_height >= 720 else 0.70)
+            else:
+                # حوالي 18% من حجم 1080p، أو 25% من حجم 720p، أو 50% من حجم 480p
+                factor = 0.18 if high_height >= 1080 else (0.25 if high_height >= 720 else (0.50 if high_height >= 480 else 0.80))
+            return high_size * factor
+
+    fallback = resolutions[-1] if resolutions else None
+    return fallback.get('size_mb', 0) if fallback else 0
+
+
 def create_quality_keyboard(user_id, sid, info=None):
-    """إنشاء لوحة مفاتيح خيارات الجودة بشكل ديناميكي"""
+    """إنشاء لوحة مفاتيح خيارات الجودة ديناميكياً بناءً على الجودات المتوفرة فعلياً في الفيديو"""
     markup = types.InlineKeyboardMarkup()
     
-    if not info:
-        # أزرار افتراضية في حال فشل الاستخراج
-        markup.row(
-            types.InlineKeyboardButton("🎬 جودة عالية 720+", callback_data=f"dl_high|{sid}"),
-            types.InlineKeyboardButton("🎥 جودة متوسطة 480", callback_data=f"dl_medium|{sid}")
-        )
-        markup.row(
-            types.InlineKeyboardButton("📱 جودة منخفضة 360", callback_data=f"dl_low|{sid}"),
-            types.InlineKeyboardButton("🎵 تحميل صوت فقط", callback_data=f"audio_{sid}")
-        )
-    else:
-        resolutions = info.get('resolutions', [])
-        if resolutions:
-            # ترتيب الجودات لصفوف (كل صف جودتين)
-            for i in range(0, len(resolutions), 2):
-                row = []
-                for res in resolutions[i:i+2]:
-                    label = f"🎥 {res}p"
-                    if res >= 2160: label = f"💎 4K ({res}p)"
-                    elif res >= 1440: label = f"🌟 2K ({res}p)"
-                    elif res >= 1080: label = f"🎬 Full HD ({res}p)"
-                    elif res >= 720: label = f"🎥 HD ({res}p)"
-                    
-                    row.append(types.InlineKeyboardButton(label, callback_data=f"dl_{res}|{sid}"))
-                markup.row(*row)
-        else:
-            markup.row(
-                types.InlineKeyboardButton("🎬 أفضل جودة متاحة", callback_data=f"dl_high|{sid}"),
-                types.InlineKeyboardButton("🎥 جودة متوسطة", callback_data=f"dl_medium|{sid}")
-            )
-        
-        # إضافة خيار الصوت
-        markup.row(types.InlineKeyboardButton("🎵 تحميل صوت فقط (MP3)", callback_data=f"audio_{sid}"))
+    resolutions = []
+    max_height = 0
     
-    # زر الرجوع للقائمة الرئيسية
+    if info and info.get('resolutions'):
+        resolutions = info['resolutions']
+        if resolutions:
+            max_height = max(r.get('height', 0) for r in resolutions)
+    
+    if max_height > 0:
+        # === بناء الأزرار ديناميكياً بناءً على الجودات الفعلية ===
+        
+        # 🎬 جودة عالية (HD): تظهر فقط إذا توفرت جودة ≥720p
+        if max_height >= 720:
+            best_h = resolutions[0].get('height', 720)
+            size_mb = _find_tier_size(resolutions, 'high')
+            size_txt = f" ({_format_size(size_mb)})" if size_mb > 0 else ""
+            markup.row(types.InlineKeyboardButton(
+                f"🎬 جودة عالية {best_h}p{size_txt}",
+                callback_data=f"dl_high|{sid}"
+            ))
+        
+        # 📺 جودة متوسطة (SD): تظهر فقط إذا توفرت جودة ≥480p
+        if max_height >= 480:
+            size_mb = _find_tier_size(resolutions, 'medium')
+            size_txt = f" ({_format_size(size_mb)})" if size_mb > 0 else ""
+            markup.row(types.InlineKeyboardButton(
+                f"📺 جودة متوسطة 480p{size_txt}",
+                callback_data=f"dl_medium|{sid}"
+            ))
+        
+        # 📱 جودة ضعيفة: تظهر دائماً كخيار احتياطي صغير الحجم
+        size_mb = _find_tier_size(resolutions, 'low')
+        size_txt = f" ({_format_size(size_mb)})" if size_mb > 0 else ""
+        markup.row(types.InlineKeyboardButton(
+            f"📱 جودة ضعيفة 360p{size_txt}",
+            callback_data=f"dl_low|{sid}"
+        ))
+    else:
+        # لم نتمكن من استخراج بيانات الجودة — نعرض كل الخيارات كاحتياط
+        markup.row(types.InlineKeyboardButton("🎬 جودة عالية (HD)", callback_data=f"dl_high|{sid}"))
+        markup.row(types.InlineKeyboardButton("📺 جودة متوسطة (SD)", callback_data=f"dl_medium|{sid}"))
+        markup.row(types.InlineKeyboardButton("📱 جودة ضعيفة", callback_data=f"dl_low|{sid}"))
+    
+    # === أزرار ثابتة (تظهر دائماً) ===
+    markup.row(types.InlineKeyboardButton("🎵 تحميل صوت فقط (MP3)", callback_data=f"audio_{sid}"))
     markup.row(types.InlineKeyboardButton("🔙 إلغاء والرجوع", callback_data="menu_back_to_main"))
     
     return markup

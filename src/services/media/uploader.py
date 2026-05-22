@@ -17,7 +17,7 @@ class ProgressFileReader:
         data = self.file.read(size)
         self.read_bytes += len(data)
         if self.callback:
-            percent = int((self.read_bytes / self.size) * 100)
+            percent = int((self.read_bytes / self.size) * 100) if self.size > 0 else 0
             self.callback(percent, *self.args, **self.kwargs)
         return data
 
@@ -42,7 +42,7 @@ class ProgressFileReader:
             raise StopIteration
         self.read_bytes += len(data)
         if self.callback:
-            percent = int((self.read_bytes / self.size) * 100)
+            percent = int((self.read_bytes / self.size) * 100) if self.size > 0 else 0
             self.callback(percent, *self.args, **self.kwargs)
         return data
 

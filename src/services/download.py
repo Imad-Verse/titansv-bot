@@ -62,6 +62,12 @@ def _build_file_too_large_message(uid, size_mb=0):
 def _exceeds_telegram_upload_limit(size_bytes):
     return bool(size_bytes and Config.TELEGRAM_UPLOAD_LIMIT > 0 and size_bytes > Config.TELEGRAM_UPLOAD_LIMIT)
 
+_QUALITY_CASCADE = {'high': 'medium', 'medium': 'low'}
+
+def _get_next_lower_quality(quality_type):
+    """الحصول على المستوى الأقل التالي في سلسلة الجودات (high→medium→low)"""
+    return _QUALITY_CASCADE.get(quality_type)
+
 def _classify_download_error(uid, error_text, size_mb=0):
     er_msg = (error_text or "").lower()
 
@@ -99,7 +105,7 @@ def _build_progress_hook(cancel_event, progress_msg, chat_id, text, progress_mar
         if d['status'] == 'downloading':
             try:
                 total = d.get('total_bytes') or d.get('total_bytes_estimate')
-                if total:
+                if total and total > 0:
                     percent = (d.get('downloaded_bytes', 0) / total) * 100
                     if int(percent) - last_progress['value'] >= 10 or percent >= 98:
                         if update_progress_message(progress_msg.message_id, chat_id, text, int(percent), markup=progress_markup):
@@ -213,32 +219,154 @@ def maybe_report_failure(user_id, url, platform, reason, sid="", size_mb=0, titl
 
 def extract_media_info(url, cookies_file=None):
     from src.core.proxy_manager import proxy_manager
-    proxy = proxy_manager.get_proxy()
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'nocheckcertificate': True, 'skip_download': True, 'ignoreerrors': True, 'proxy': proxy}
-    if cookies_file: ydl_opts['cookiefile'] = str(cookies_file)
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info: return None
-            formats = info.get('formats', [])
-            resolutions = set()
-            for f in formats:
-                height = f.get('height')
-                if height and height >= 144: resolutions.add(height)
-            sorted_res = sorted(list(resolutions), reverse=True)
-            filtered_res = []
-            seen_standard = set()
-            standards = [2160, 1440, 1080, 720, 480, 360, 240, 144]
-            for res in sorted_res:
-                for std in standards:
-                    if res >= std and std not in seen_standard:
-                        filtered_res.append(res)
-                        seen_standard.add(std)
-                        break
-            return {'title': info.get('title'), 'duration': info.get('duration'), 'thumbnail': info.get('thumbnail'), 'resolutions': sorted(filtered_res, reverse=True), 'platform': detect_platform_from_url(url), 'info': info}
-    except Exception as e:
-        logger.error(f"Info Extraction Error: {e}")
+    platform = detect_platform_from_url(url)
+    info = None
+    
+    # Try up to 3 times with different proxy/cookie/extractor configurations
+    for attempt in range(3):
+        proxy = proxy_manager.get_proxy(platform=platform) if attempt < 2 else None
+        
+        ydl_opts = {
+            'quiet': True,
+            'no_warnings': True,
+            'nocheckcertificate': True,
+            'skip_download': True,
+            'ignoreerrors': True,
+            'socket_timeout': 15,
+        }
+        
+        if proxy:
+            ydl_opts['proxy'] = proxy
+            
+        # Failover configuration adjustments
+        if attempt == 0:
+            if cookies_file:
+                ydl_opts['cookiefile'] = str(cookies_file)
+        elif attempt == 1:
+            ydl_opts.pop('proxy', None)  # Fallback to local IP
+            if cookies_file:
+                ydl_opts['cookiefile'] = str(cookies_file)
+        elif attempt == 2:
+            ydl_opts.pop('proxy', None)
+            if cookies_file and platform != 'instagram':
+                # Try without cookies as a last resort
+                ydl_opts.pop('cookiefile', None)
+            elif cookies_file:
+                ydl_opts['cookiefile'] = str(cookies_file)
+
+        # Platform specific tweaks
+        if platform == 'instagram':
+            ydl_opts['extractor_args'] = {
+                'instagram': {
+                    'include_reels': True,
+                    'include_stories': True,
+                    'check_formats': True
+                }
+            }
+            ydl_opts['user_agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+
+        try:
+            logger.info(f"🔍 Extracting info for {url} (Attempt {attempt+1}, Platform: {platform}, Proxy: {proxy is not None})")
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                if info:
+                    break
+        except Exception as e:
+            logger.warning(f"⚠️ Info extraction attempt {attempt+1} failed: {e}")
+            if proxy:
+                proxy_manager.report_failure(proxy, platform=platform)
+            if attempt == 2:
+                return None
+    else:
         return None
+
+    try:
+        formats = info.get('formats', [])
+        duration = info.get('duration') or 0
+        
+        # 1. Find the best audio format size to estimate merged adaptive format size
+        best_audio_size = 0
+        for f in formats:
+            if f.get('vcodec') == 'none' and f.get('acodec') != 'none':
+                size = f.get('filesize') or f.get('filesize_approx') or 0
+                if not size and f.get('tbr') and duration > 0:
+                    size = (f['tbr'] * 1000 / 8) * duration
+                if size > best_audio_size:
+                    best_audio_size = size
+        
+        # 2. Extract, calculate size and map resolutions
+        resolutions_map = {}
+        standards = [2160, 1440, 1080, 720, 480, 360, 240, 144]
+        
+        def get_format_resolution(fmt):
+            width = fmt.get('width')
+            height = fmt.get('height')
+            if width and height:
+                return min(width, height)
+            return height or 0
+            
+        def get_nearest_standard(h):
+            for std in standards:
+                if abs(h - std) <= 30:
+                    return std
+            for std in standards:
+                if h >= std:
+                    return std
+            return 144
+
+        for f in formats:
+            if f.get('vcodec') == 'none':
+                continue
+                
+            res = get_format_resolution(f)
+            if res and res >= 144:
+                size = f.get('filesize') or f.get('filesize_approx') or 0
+                if not size and f.get('tbr') and duration > 0:
+                    size = (f['tbr'] * 1000 / 8) * duration
+                    
+                # Add audio size if it's a video-only adaptive format
+                if f.get('acodec') == 'none':
+                    size += best_audio_size
+                    
+                if res not in resolutions_map or size > resolutions_map[res]:
+                    resolutions_map[res] = size
+
+        # 3. Standardize resolutions and remove duplicates
+        seen_standards = {}
+        for res in sorted(resolutions_map.keys(), reverse=True):
+            std_res = get_nearest_standard(res)
+            size_mb = resolutions_map[res] / (1024 * 1024)
+            
+            if std_res not in seen_standards:
+                seen_standards[std_res] = {
+                    'height': std_res,
+                    'size_mb': size_mb
+                }
+            else:
+                if size_mb > seen_standards[std_res]['size_mb']:
+                    seen_standards[std_res]['size_mb'] = size_mb
+
+        # 4. Prepare final sorted list of resolution dictionaries
+        sorted_resolutions = [seen_standards[k] for k in sorted(seen_standards.keys(), reverse=True)]
+        
+        return {
+            'title': info.get('title'),
+            'duration': info.get('duration'),
+            'thumbnail': info.get('thumbnail'),
+            'resolutions': sorted_resolutions,
+            'platform': platform,
+            'info': info
+        }
+    except Exception as ex:
+        logger.error(f"Error processing formats: {ex}")
+        return {
+            'title': info.get('title'),
+            'duration': info.get('duration'),
+            'thumbnail': info.get('thumbnail'),
+            'resolutions': [],
+            'platform': platform,
+            'info': info
+        }
 
 def process_download(message, quality_type, url=None):
     uid = message.from_user.id
@@ -296,7 +424,7 @@ def process_download(message, quality_type, url=None):
         # Direct URL Upload Strategy
         if platform in ['tiktok', 'instagram'] and quality_type not in ['audio', 'mute']:
             try:
-                direct_opts = get_ydl_opts_for_platform(source_url, 'best', cookies_file=cookies_file)
+                direct_opts = get_ydl_opts_for_platform(source_url, quality_type, cookies_file=cookies_file)
                 direct_opts['skip_download'] = True
                 with yt_dlp.YoutubeDL(direct_opts) as ydl:
                     info = ydl.extract_info(source_url, download=False)
@@ -316,24 +444,45 @@ def process_download(message, quality_type, url=None):
         ydl_opts['progress_hooks'] = [download_progress_hook]
         
         _pre_info, pre_size = precheck_media_info(source_url, ydl_opts)
-        if _exceeds_telegram_upload_limit(pre_size):
-            size_mb = pre_size / (1024 * 1024)
-            bot.edit_message_text(_build_file_too_large_message(uid, size_mb), message.chat.id, progress_msg.message_id, parse_mode="HTML", reply_markup=get_error_markup(uid))
-            log_download(uid, source_url, "failed", platform=platform, sid=sid, size_mb=size_mb, error_reason="file_too_large")
-            maybe_report_failure(uid, source_url, platform, "file_too_large", sid=sid, size_mb=size_mb)
-            return
+        while _exceeds_telegram_upload_limit(pre_size):
+            next_q = _get_next_lower_quality(quality_type)
+            if next_q:
+                quality_type = next_q
+                downgraded_text = translation_system.get(uid, 'downgraded_due_to_size')
+                update_progress_message(progress_msg.message_id, message.chat.id, downgraded_text, 10)
+                
+                ydl_opts = get_ydl_opts_for_platform(source_url, quality_type, output_template, cookies_file)
+                ydl_opts['progress_hooks'] = [download_progress_hook]
+                _pre_info, pre_size = precheck_media_info(source_url, ydl_opts)
+            else:
+                size_mb = pre_size / (1024 * 1024)
+                bot.edit_message_text(_build_file_too_large_message(uid, size_mb), message.chat.id, progress_msg.message_id, parse_mode="HTML", reply_markup=get_error_markup(uid))
+                log_download(uid, source_url, "failed", platform=platform, sid=sid, size_mb=size_mb, error_reason="file_too_large")
+                maybe_report_failure(uid, source_url, platform, "file_too_large", sid=sid, size_mb=size_mb)
+                return
 
         if cancel_event.is_set(): raise Exception("cancelled_by_user")
         
         if _pre_info is None and platform == 'tiktok' and download_url != source_url:
             ydl_opts = get_ydl_opts_for_platform(download_url, quality_type, output_template, cookies_file)
+            ydl_opts['progress_hooks'] = [download_progress_hook]
             _pre_info, pre_size = precheck_media_info(download_url, ydl_opts)
-            if _exceeds_telegram_upload_limit(pre_size):
-                size_mb = pre_size / (1024 * 1024)
-                bot.edit_message_text(_build_file_too_large_message(uid, size_mb), message.chat.id, progress_msg.message_id, parse_mode="HTML", reply_markup=get_error_markup(uid))
-                log_download(uid, message.text, "failed", platform=platform, sid=sid, size_mb=size_mb, error_reason="file_too_large")
-                maybe_report_failure(uid, message.text, platform, "file_too_large", sid=sid, size_mb=size_mb)
-                return
+            while _exceeds_telegram_upload_limit(pre_size):
+                next_q = _get_next_lower_quality(quality_type)
+                if next_q:
+                    quality_type = next_q
+                    downgraded_text = translation_system.get(uid, 'downgraded_due_to_size')
+                    update_progress_message(progress_msg.message_id, message.chat.id, downgraded_text, 10)
+                    
+                    ydl_opts = get_ydl_opts_for_platform(download_url, quality_type, output_template, cookies_file)
+                    ydl_opts['progress_hooks'] = [download_progress_hook]
+                    _pre_info, pre_size = precheck_media_info(download_url, ydl_opts)
+                else:
+                    size_mb = pre_size / (1024 * 1024)
+                    bot.edit_message_text(_build_file_too_large_message(uid, size_mb), message.chat.id, progress_msg.message_id, parse_mode="HTML", reply_markup=get_error_markup(uid))
+                    log_download(uid, source_url, "failed", platform=platform, sid=sid, size_mb=size_mb, error_reason="file_too_large")
+                    maybe_report_failure(uid, source_url, platform, "file_too_large", sid=sid, size_mb=size_mb)
+                    return
 
         info = youtube_safe_download(download_url, ydl_opts, max_retries=3) if platform == 'youtube' else enhanced_download_with_fallback(ydl_opts, download_url, max_retries=3)
         downloaded_files = find_all_downloaded_files(target_dir, sid)
@@ -382,12 +531,33 @@ def process_download(message, quality_type, url=None):
         file_size_mb = file_size_bytes / (1024 * 1024)
         video_title, video_description = extract_title_and_description(info, platform)
 
-        if file_size_bytes > Config.MAX_FILE_SIZE:
-            bot.edit_message_text(_build_file_too_large_message(uid, file_size_mb), message.chat.id, progress_msg.message_id, parse_mode="HTML", reply_markup=get_error_markup(uid))
+        # فحص الحجم بعد التحميل مع تخفيض متدرج (high→medium→low)
+        effective_limit = int(Config.TELEGRAM_UPLOAD_LIMIT * 0.95)
+        while file_size_bytes > effective_limit:
+            next_q = _get_next_lower_quality(quality_type)
+            if not next_q:
+                bot.edit_message_text(_build_file_too_large_message(uid, file_size_mb), message.chat.id, progress_msg.message_id, parse_mode="HTML", reply_markup=get_error_markup(uid))
+                if os.path.exists(file_path): os.remove(file_path)
+                log_download(uid, source_url, "failed", platform=platform, sid=sid, size_mb=file_size_mb, error_reason="file_too_large")
+                maybe_report_failure(uid, source_url, platform, "file_too_large", sid=sid, size_mb=file_size_mb, title=video_title)
+                return
+            
             if os.path.exists(file_path): os.remove(file_path)
-            log_download(uid, message.text, "failed", platform=platform, sid=sid, size_mb=file_size_mb, error_reason="file_too_large")
-            maybe_report_failure(uid, message.text, platform, "file_too_large", sid=sid, size_mb=file_size_mb, title=video_title)
-            return
+            quality_type = next_q
+            downgraded_text = translation_system.get(uid, 'downgraded_due_to_size')
+            update_progress_message(progress_msg.message_id, message.chat.id, downgraded_text, 10)
+            
+            ydl_opts = get_ydl_opts_for_platform(download_url, quality_type, output_template, cookies_file)
+            ydl_opts['progress_hooks'] = [download_progress_hook]
+            
+            info = youtube_safe_download(download_url, ydl_opts, max_retries=3) if platform == 'youtube' else enhanced_download_with_fallback(ydl_opts, download_url, max_retries=3)
+            downloaded_files = find_all_downloaded_files(target_dir, sid)
+            if not downloaded_files: raise Exception("No files downloaded on fallback")
+            
+            file_path = downloaded_files[0]
+            file_size_bytes = os.path.getsize(file_path)
+            file_size_mb = file_size_bytes / (1024 * 1024)
+            video_title, video_description = extract_title_and_description(info, platform)
 
         duration = format_seconds(info.get('duration', 0))
         update_progress_message(progress_msg.message_id, message.chat.id, translation_system.get(uid, 'download_completed'), 0)
@@ -419,7 +589,9 @@ def process_download(message, quality_type, url=None):
             
             # Check if splitting is needed
             limit_mb = Config.TELEGRAM_UPLOAD_LIMIT_MB
-            files_to_upload = split_large_file(file_path, max_size_mb=limit_mb - 50)
+            safety_margin = 50 if limit_mb > 100 else 2
+            max_chunk_size = max(5, limit_mb - safety_margin)
+            files_to_upload = split_large_file(file_path, max_size_mb=max_chunk_size)
             
             for i, fp in enumerate(files_to_upload):
                 part_caption = caption
@@ -438,6 +610,16 @@ def process_download(message, quality_type, url=None):
                     finally:
                         if t: t.close()
                 if len(files_to_upload) > 1: delayed_delete(fp, delay=600)
+            
+            # Cache successfully sent single video
+            if len(files_to_upload) == 1 and sent_msg:
+                file_id = None
+                if hasattr(sent_msg, 'video') and sent_msg.video:
+                    file_id = sent_msg.video.file_id
+                elif hasattr(sent_msg, 'document') and sent_msg.document:
+                    file_id = sent_msg.document.file_id
+                if file_id:
+                    save_to_cache(source_url, quality_type, file_id, title=video_title, description=video_description, duration=duration, size_mb=file_size_mb, platform=platform)
         
         _delete_progress_message(message.chat.id, progress_msg)
         delayed_delete(file_path, delay=600)
