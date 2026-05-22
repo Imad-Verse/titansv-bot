@@ -588,7 +588,7 @@ def process_download(message, quality_type, url=None):
                 if not mute_path:
                     _delete_progress_message(message.chat.id, progress_msg)
                     bot.send_message(message.chat.id, translation_system.get(uid, 'processing_error'), parse_mode="HTML", reply_markup=get_error_markup(uid))
-                    log_download(uid, message.text, "failed", platform=platform, sid=sid, error_reason="processing_error")
+                    log_download(uid, source_url, "failed", platform=platform, sid=sid, error_reason="processing_error")
                     return
                 if os.path.exists(file_path): os.remove(file_path)
                 file_path = mute_path
@@ -631,7 +631,7 @@ def process_download(message, quality_type, url=None):
         delayed_delete(file_path, delay=600)
         if thumb_path: delayed_delete(thumb_path, delay=600)
         update_download_stats()
-        if BotState.report_logs and uid != Config.ADMIN_ID: send_download_report(uid, message.text, file_size_mb, video_title, platform, sid)
+        if BotState.report_logs and uid != Config.ADMIN_ID: send_download_report(uid, source_url, file_size_mb, video_title, platform, sid)
         log_download(uid, source_url, "success", size_mb=file_size_mb, platform=platform, title=video_title, sid=sid)
 
     except Exception as e:

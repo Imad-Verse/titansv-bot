@@ -46,9 +46,6 @@ def create_main_markup(user_id, is_admin=False):
     )
     markup.row(
         types.InlineKeyboardButton(bots_list_btn, callback_data="menu_bots_list"),
-        types.InlineKeyboardButton(contact_btn, callback_data="menu_contact")
-    )
-    markup.row(
         types.InlineKeyboardButton(stats_btn, callback_data="menu_user_stats")
     )
     
@@ -134,7 +131,11 @@ def help_command(message):
             markup.row(*channel_btns[i:i+2])
             
     dev_text = translation_system.get(uid, 'contact_dev')
-    markup.row(types.InlineKeyboardButton(dev_text, url="https://t.me/abulharith_imad"))
+    main_menu_text = translation_system.get(uid, 'main_menu')
+    markup.row(
+        types.InlineKeyboardButton(dev_text, url="https://t.me/abulharith_imad"),
+        types.InlineKeyboardButton(main_menu_text, callback_data="menu_back_to_main")
+    )
         
     bot.send_message(message.chat.id, f"{help_title}\n\n{help_message}", parse_mode="HTML", reply_markup=markup)
 
