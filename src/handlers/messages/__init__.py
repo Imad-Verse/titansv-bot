@@ -49,7 +49,8 @@ def handle_urls(message):
         platform = detect_platform_from_url(url)
         
         if platform not in Config.ALLOWED_PLATFORMS:
-            platforms_text = ", ".join([p.title() for p in Config.ALLOWED_PLATFORMS])
+            platforms_list = [p.title() for p in Config.ALLOWED_PLATFORMS if p != 'other']
+            platforms_text = ", ".join(platforms_list)
             msg = translation_system.get(uid, 'unsupported_platform', platforms=platforms_text)
             bot.reply_to(message, msg, parse_mode="HTML", reply_markup=get_error_markup(uid))
             return
@@ -70,15 +71,26 @@ def handle_urls(message):
             
             info = extract_media_info(u, cookies_file=get_cookies_path(pform))
             
+            if info is None:
+                try:
+                    bot.edit_message_text(
+                        translation_system.get(uid, 'unsupported_url'),
+                        p_msg.chat.id,
+                        p_msg.message_id,
+                        reply_markup=get_error_markup(uid),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Failed to show unsupported url message: {e}")
+                return
+                
             from src.utils.ui import create_quality_keyboard
             markup = create_quality_keyboard(uid, s, info=info)
-                
-
-
+            
             # تحديث الرسالة بالخيارات الجديدة
             try:
                 text = translation_system.get(uid, 'choose_quality')
-                if info and info.get('title'):
+                if info.get('title'):
                     title = info['title']
                     if len(title) > 50: title = title[:47] + "..."
                     text = f"<b>📄 {title}</b>\n\n" + text

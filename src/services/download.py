@@ -179,10 +179,12 @@ def send_download_report(user_id, url, size, title, platform, sid):
                f"🔢 <b>عدد التحميلات:</b> {total_dls}\n"
                f"📱 <b>منصة:</b> {platform}\n"
                f"💾 <b>حجم:</b> {size:.2f} MB\n"
-               f"🎞 <b>عنوان:</b> {short_title}\n"
-               f"🔗 <b>الرابط:</b> <a href='{url}'>اضغط هنا لفتحه</a>")
+               f"🎞 <b>عنوان:</b> {short_title}")
         markup = types.InlineKeyboardMarkup()
-        markup.add(types.InlineKeyboardButton("📋 نسخ الرابط", callback_data=f"copy_link|{sid}"))
+        markup.row(
+            types.InlineKeyboardButton("📋 نسخ الرابط", callback_data=f"copy_link|{sid}"),
+            types.InlineKeyboardButton("👁️ معاينة الرابط", url=url)
+        )
         bot.send_message(Config.ADMIN_ID, msg, parse_mode="HTML", reply_markup=markup)
     except Exception as e: logger.error(f"Report error: {e}")
 
@@ -204,12 +206,15 @@ def send_failure_report(user_id, url, platform, reason, sid="", size_mb=0, title
                f"📱 <b>منصة:</b> {platform}\n"
                f"💾 <b>حجم:</b> {size_text}\n"
                f"🎞 <b>عنوان:</b> {short_title}\n"
-               f"⚠️ <b>السبب:</b> {reason_text}\n"
-               f"🔗 <b>الرابط:</b> <a href='{url}'>اضغط هنا لفتحه</a>")
-        markup = None
+               f"⚠️ <b>السبب:</b> {reason_text}")
+        markup = types.InlineKeyboardMarkup()
         if sid:
-            markup = types.InlineKeyboardMarkup()
-            markup.add(types.InlineKeyboardButton("📋 نسخ الرابط", callback_data=f"copy_link|{sid}"))
+            markup.row(
+                types.InlineKeyboardButton("📋 نسخ الرابط", callback_data=f"copy_link|{sid}"),
+                types.InlineKeyboardButton("👁️ معاينة الرابط", url=url)
+            )
+        else:
+            markup.row(types.InlineKeyboardButton("👁️ معاينة الرابط", url=url))
         bot.send_message(Config.ADMIN_ID, msg, parse_mode="HTML", reply_markup=markup)
     except Exception as e: logger.error(f"Failure report error: {e}")
 
@@ -401,7 +406,8 @@ def process_download(message, quality_type, url=None):
         file_size_mb = 0
         if platform not in Config.ALLOWED_PLATFORMS:
             error_reason = "invalid_link" if platform == 'other' else "unsupported_platform"
-            msg = translation_system.get(uid, error_reason, platforms=", ".join([p.title() for p in Config.ALLOWED_PLATFORMS]))
+            platforms_list = [p.title() for p in Config.ALLOWED_PLATFORMS if p != 'other']
+            msg = translation_system.get(uid, error_reason, platforms=", ".join(platforms_list))
             bot.send_message(message.chat.id, msg, parse_mode="HTML", reply_markup=get_error_markup(uid))
             log_download(uid, source_url, "failed", platform=platform, sid=sid, error_reason=error_reason)
             if error_reason != "invalid_link": maybe_report_failure(uid, source_url, platform, error_reason, sid=sid)

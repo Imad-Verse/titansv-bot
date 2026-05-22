@@ -204,3 +204,89 @@ def callback_query(call):
             bot.answer_callback_query(call.id)
         except:
             pass
+
+    elif call.data.startswith('delete_broadcast|'):
+        if uid != Config.ADMIN_ID: return
+        try:
+            _, broadcast_id = call.data.split('|', 1)
+            from src.core.database import get_broadcast_messages, delete_broadcast_messages_db
+            messages = get_broadcast_messages(broadcast_id)
+            
+            if not messages:
+                bot.answer_callback_query(call.id, "⚠️ لا توجد رسائل مسجلة لهذا البث.", show_alert=True)
+                return
+                
+            bot.answer_callback_query(call.id, "⏳ جاري حذف رسائل البث...")
+            
+            def delete_worker():
+                success = 0
+                failed = 0
+                for user_id, message_id in messages:
+                    try:
+                        bot.delete_message(int(user_id), int(message_id))
+                        success += 1
+                    except Exception:
+                        failed += 1
+                
+                delete_broadcast_messages_db(broadcast_id)
+                bot.send_message(call.message.chat.id, f"🗑 <b>اكتمل حذف الإذاعة!</b>\n\n✅ تم حذف: <code>{success}</code>\n❌ فشل حذف: <code>{failed}</code>", parse_mode="HTML")
+            
+            import threading
+            threading.Thread(target=delete_worker, daemon=True).start()
+            
+            try: bot.delete_message(call.message.chat.id, call.message.message_id)
+            except: pass
+            
+        except Exception as e:
+            logger.error(f"Delete broadcast error: {e}")
+            bot.answer_callback_query(call.id, "❌ فشل حذف الإذاعة", show_alert=True)
+        return
+
+    elif call.data.startswith('edit_broadcast_start|'):
+        if uid != Config.ADMIN_ID: return
+        try:
+            _, broadcast_id = call.data.split('|', 1)
+            msg = bot.send_message(call.message.chat.id, "📝 <b>أرسل الآن النص الجديد لتحديث رسالة الإذاعة:</b>\n(يدعم التعديل للرسائل النصية حالياً)", parse_mode="HTML")
+            bot.register_next_step_handler(msg, process_edit_broadcast_step, broadcast_id)
+            bot.answer_callback_query(call.id)
+        except Exception as e:
+            logger.error(f"Edit broadcast start error: {e}")
+            bot.answer_callback_query(call.id, "❌ حدث خطأ", show_alert=True)
+        return
+
+def process_edit_broadcast_step(message, broadcast_id):
+    if message.text in ['🔙 الغاء', '/admin']:
+        bot.send_message(message.chat.id, "❌ تم إلغاء التعديل.")
+        return
+        
+    new_text = message.text
+    if not new_text:
+        bot.send_message(message.chat.id, "❌ يجب إرسال رسالة نصية فقط للتعديل.")
+        return
+        
+    from src.core.database import get_broadcast_messages
+    messages = get_broadcast_messages(broadcast_id)
+    
+    if not messages:
+        bot.send_message(message.chat.id, "⚠️ لا توجد رسائل مسجلة لهذا البث لتعديلها.")
+        return
+        
+    status_msg = bot.send_message(message.chat.id, "⏳ جاري تعديل رسائل الإذاعة...")
+    
+    def edit_worker():
+        success = 0
+        failed = 0
+        header_msg = "📢 <b>رسالة جديدة من الإدارة:</b>"
+        full_text = f"{header_msg}\n\n\"{new_text}\"\n\n{Config.BOT_SIG}"
+        
+        for user_id, message_id in messages:
+            try:
+                bot.edit_message_text(full_text, int(user_id), int(message_id), parse_mode="HTML")
+                success += 1
+            except Exception:
+                failed += 1
+                
+        bot.edit_message_text(f"✏️ <b>اكتمل تعديل الإذاعة!</b>\n\n✅ تم تعديل: <code>{success}</code>\n❌ فشل تعديل: <code>{failed}</code>", message.chat.id, status_msg.message_id, parse_mode="HTML")
+        
+    import threading
+    threading.Thread(target=edit_worker, daemon=True).start()

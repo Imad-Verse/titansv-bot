@@ -41,6 +41,13 @@ def detect_platform_from_url(url):
         if any(x in domain for x in ['pinterest.com', 'pin.it']): return 'pinterest'
         if 'threads.net' in domain: return 'threads'
         if 'snapchat.com' in domain: return 'snapchat'
+        if any(x in domain for x in ['soundcloud.com', 'snd.sc']): return 'soundcloud'
+        if 'vimeo.com' in domain: return 'vimeo'
+        if any(x in domain for x in ['dailymotion.com', 'dai.ly']): return 'dailymotion'
+        if any(x in domain for x in ['reddit.com', 'redd.it']): return 'reddit'
+        if any(x in domain for x in ['kwai.com', 'kwaishow.com']): return 'kwai'
+        if any(x in domain for x in ['likee.video', 'like.video']): return 'likee'
+        if 'twitch.tv' in domain: return 'twitch'
     except: pass
     return 'other'
 

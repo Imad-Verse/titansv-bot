@@ -32,7 +32,7 @@ def perform_all_broadcast(message):
             types.InlineKeyboardButton("📢 شارك البوت", url=f"https://t.me/share/url?url=https://t.me/{get_bot_username()}")
         )
         
-        header_msg = "📢 <b>إعلان من الإدارة:</b>"
+        header_msg = "📢 <b>رسالة جديدة من الإدارة:</b>"
         content_type = message.content_type
         content_data = None
         caption = ""
@@ -196,8 +196,11 @@ def perform_specific_broadcast(message, target_user_id):
         content_data = None
         caption = message.caption
         
+        header_msg = "📢 <b>رسالة جديدة من الإدارة:</b>"
+        
         if content_type == 'text':
-            full_text = f"🔔 <b>رسالة من الإدارة:</b>\n\n{message.text}\n\n{Config.BOT_SIG}"
+            content_data = message.text
+            full_text = f"{header_msg}\n\n\"{content_data}\"\n\n{Config.BOT_SIG}"
         elif content_type == 'photo':
             content_data = message.photo[-1].file_id
         elif content_type == 'video':
@@ -209,8 +212,6 @@ def perform_specific_broadcast(message, target_user_id):
             
         markup = types.InlineKeyboardMarkup()
         markup.add(types.InlineKeyboardButton("🗑 إخفاء", callback_data="delete_me"))
-        
-        header_msg = "🔔 <b>رسالة من الإدارة:</b>"
         
         try:
             if content_type == 'text':

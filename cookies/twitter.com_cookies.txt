@@ -8,3 +8,6 @@
 .x.com	TRUE	/	TRUE	1842452949	personalization_id	"v1_9Dk4/d06m4VbYlL4w2azEQ=="
 .x.com	TRUE	/	TRUE	1842452949	guest_id	v1%3A177938094930033960
 .x.com	TRUE	/	TRUE	1779382749	__cf_bm	G2cerzq.nSuBKYmU6sSOdvAxztqfkIg_Nh4_hH4ULkA-1779380949.2219121-1.0.1.1-vZZcP9r1rIa9W5seqC6gvzUk4ZXUEmmRyao4ME3x7SfnrOJzkrJDymH5qScsdzWhi95pE52Y7N3z03lt7PatahLSzv3_PMYSfW0uGIpQU07IbIyu8d69Ru2YxL_4Zdaw
+crazyshit.com	FALSE	/	FALSE	0	PHPSESSID	ouf287jvstrcld76hluj8iefp0
+.crazyshit.com	TRUE	/	FALSE	1782006863	client_id	7f416cde-e999-404a-8f2f-d6c99d5fdf67
+.crazyshit.com	TRUE	/	FALSE	1810950961	_sts	recent

@@ -80,9 +80,9 @@ class Config:
     MAX_VIDEO_DURATION = int(os.getenv('MAX_VIDEO_DURATION', 7200)) # 2 Hours
 
     # --- المنصات المسموح بها ---
-    _default_platforms = 'youtube,instagram,facebook,tiktok,twitter,pinterest,threads,snapchat'
+    _default_platforms = 'youtube,instagram,facebook,tiktok,twitter,pinterest,threads,snapchat,soundcloud,vimeo,dailymotion,reddit,kwai,likee,twitch'
     _raw_platforms = os.getenv('ALLOWED_PLATFORMS', _default_platforms)
-    ALLOWED_PLATFORMS = [p.strip().lower() for p in _raw_platforms.split(",") if p.strip()]
+    ALLOWED_PLATFORMS = [p.strip().lower() for p in _raw_platforms.split(",") if p.strip()] + ['other']
 
     # --- المسارات الخارجية ---
     FFMPEG_PATH = Path(os.getenv('FFMPEG_PATH')) if os.getenv('FFMPEG_PATH') else None

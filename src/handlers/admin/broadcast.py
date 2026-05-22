@@ -51,49 +51,14 @@ def process_broadcast_step(message, target_type):
         send_admin_panel(message.chat.id)
         return
 
-    BotState.is_broadcast_active = True
-    
     if target_type == "all":
-        from src.core.database import get_active_user_ids
-        users = get_active_user_ids()
-        total_users = len(users)
-        status_msg = bot.send_message(message.chat.id, f"🚀 <b>بدء الإذاعة لـ {total_users} مستخدم...</b>", parse_mode="HTML")
+        from src.services.broadcast import perform_all_broadcast
+        import threading
+        threading.Thread(target=perform_all_broadcast, args=(message,), daemon=True).start()
     else:
-        # إذا كان الإرسال لمستخدم واحد
-        users = [target_type]
-        status_msg = bot.send_message(message.chat.id, f"⏳ جاري الإرسال للمستخدم {target_type}...")
-
-    success = 0
-    failed = 0
-    broadcast_id = f"bc_{int(time.time())}"
-    batch_logs = []
-
-    for user_id in users:
-        if not BotState.is_broadcast_active: break
-        try:
-            sent_msg = bot.copy_message(user_id, message.chat.id, message.message_id)
-            success += 1
-            batch_logs.append((broadcast_id, str(user_id), str(sent_msg.message_id)))
-            
-            if len(batch_logs) >= 50:
-                log_broadcast_messages_batch(batch_logs)
-                batch_logs = []
-                
-        except Exception:
-            failed += 1
+        from src.services.broadcast import perform_specific_broadcast
+        perform_specific_broadcast(message, target_type)
         
-        if len(users) > 20 and (success + failed) % 20 == 0:
-            try:
-                bot.edit_message_text(f"⏳ جاري الإرسال...\n✅ نجاح: {success}\n❌ فشل: {failed}\n📊 الإجمالي: {success+failed}/{len(users)}", message.chat.id, status_msg.message_id)
-            except: pass
-
-    if batch_logs:
-        log_broadcast_messages_batch(batch_logs)
-
-    BotState.is_broadcast_active = False
-    final_text = f"✅ <b>اكتمل الإرسال!</b>\n\n🎯 نجاح: <code>{success}</code>\n🚫 فشل: <code>{failed}</code>"
-    bot.send_message(message.chat.id, final_text, parse_mode="HTML")
-    
-    from src.handlers.admin import send_admin_panel
-    send_admin_panel(message.chat.id)
+        from src.handlers.admin import send_admin_panel
+        send_admin_panel(message.chat.id)
 
